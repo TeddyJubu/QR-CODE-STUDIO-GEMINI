@@ -18,6 +18,7 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
         height: 256,
         type: 'svg',
         data: data,
+        margin: 0,
         dotsOptions: {
           color: fgColor,
           type: dotType,
@@ -43,6 +44,7 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
     if (qrRef.current) {
       qrRef.current.update({
         data: data,
+        margin: 0,
         dotsOptions: {
           color: fgColor,
           type: dotType,

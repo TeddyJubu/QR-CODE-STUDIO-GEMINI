@@ -4,9 +4,9 @@ export const DEFAULT_QR_CODE_CONFIG: Omit<QRCodeConfig, 'id' | 'name'> = {
   data: 'https://example.com',
   isDynamic: false,
   contentType: 'url',
-  fgColor: '#6366f1',
-  bgColor: '#ffffff',
-  dotType: 'square',
+  fgColor: '#FFFFFF',
+  bgColor: 'transparent',
+  dotType: 'rounded',
   cornerSquareType: 'square',
   cornerDotType: 'square',
 };
