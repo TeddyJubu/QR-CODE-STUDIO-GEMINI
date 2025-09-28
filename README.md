@@ -8,6 +8,10 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/drive/1hfF6X4OBK78BhwQHSYiwiFWMQA5DVUly
 
+## Contributor Guidelines
+
+For code style, testing expectations, and PR checklists, see [AGENTS.md](AGENTS.md).
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
