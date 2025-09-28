@@ -511,14 +511,55 @@ const App: React.FC = () => {
             </GlassCard>
 
             <GlassCard title="Shape & Style" isOpen={openSections.shape} setIsOpen={() => toggleSection('shape')} isCollapsible>
-                <VisualSegmentedControl label="Dot Style" options={DOT_STYLES} value={currentConfig.dotType} onChange={(v) => updateConfig('dotType', v as DotType)} gridCols="grid-cols-3 sm:grid-cols-6" />
+                <VisualSegmentedControl
+                    label="Dot Style"
+                    options={DOT_STYLES}
+                    value={currentConfig.dotType}
+                    onChange={(v) => updateConfig('dotType', v as DotType)}
+                    gridCols="grid-cols-1 sm:grid-cols-2"
+                    renderPreview={(option) => (
+                        <DotStylePreview type={option.value as DotType} color={currentConfig.fgColor} />
+                    )}
+                />
             </GlassCard>
             
             <GlassCard title="Finder Pattern Style" isOpen={openSections.finders} setIsOpen={() => toggleSection('finders')} isCollapsible>
                 <FinderPatternExplanation />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <VisualSegmentedControl label="Outer Square" options={CORNER_SQUARE_STYLES} value={currentConfig.cornerSquareType} onChange={(v) => updateConfig('cornerSquareType', v as CornerSquareType)} gridCols="grid-cols-3" />
-                    <VisualSegmentedControl label="Inner Dot" options={CORNER_DOT_STYLES} value={currentConfig.cornerDotType} onChange={(v) => updateConfig('cornerDotType', v as CornerDotType)} gridCols="grid-cols-3" />
+                <FinderPatternPreview
+                    outer={currentConfig.cornerSquareType}
+                    inner={currentConfig.cornerDotType}
+                    fgColor={currentConfig.fgColor}
+                    bgColor={currentConfig.bgColor}
+                />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <VisualSegmentedControl
+                        label="Outer Eye"
+                        options={CORNER_SQUARE_STYLES}
+                        value={currentConfig.cornerSquareType}
+                        onChange={(v) => updateConfig('cornerSquareType', v as CornerSquareType)}
+                        gridCols="grid-cols-1 sm:grid-cols-2"
+                        renderPreview={(option) => (
+                            <CornerStylePreview
+                                variant="outer"
+                                type={option.value as CornerSquareType}
+                                color={currentConfig.fgColor}
+                            />
+                        )}
+                    />
+                    <VisualSegmentedControl
+                        label="Inner Eye"
+                        options={CORNER_DOT_STYLES}
+                        value={currentConfig.cornerDotType}
+                        onChange={(v) => updateConfig('cornerDotType', v as CornerDotType)}
+                        gridCols="grid-cols-1 sm:grid-cols-2"
+                        renderPreview={(option) => (
+                            <CornerStylePreview
+                                variant="inner"
+                                type={option.value as CornerDotType}
+                                color={currentConfig.fgColor}
+                            />
+                        )}
+                    />
                 </div>
             </GlassCard>
 
@@ -1114,6 +1155,163 @@ const UtmBuilder: React.FC<{
     );
 };
 
+const radiusMapDot: Record<DotType, string> = {
+    square: '4px',
+    rounded: '8px',
+    dots: '999px',
+    classy: '4px',
+    'classy-rounded': '10px',
+    'extra-rounded': '12px',
+};
+
+const DotStylePreview: React.FC<{ type: DotType; color: string }> = ({ type, color }) => {
+    const cells = Array.from({ length: 9 });
+    const transformMap: Partial<Record<DotType, string>> = {
+        dots: 'scale(0.85)',
+        classy: 'scale(0.9)',
+        'classy-rounded': 'scale(0.9)',
+        'extra-rounded': 'scale(0.92)',
+    };
+    const shadowMap: Partial<Record<DotType, string>> = {
+        classy: 'inset 0 0 0 1px rgba(255,255,255,0.35)',
+        'classy-rounded': 'inset 0 0 0 1px rgba(255,255,255,0.35)',
+    };
+
+    return (
+        <div className="w-full flex justify-center">
+            <div className="grid grid-cols-3 gap-1 rounded-lg border border-white/10 bg-slate-900/60 p-2">
+                {cells.map((_, idx) => (
+                    <span
+                        key={idx}
+                        className="block"
+                        style={{
+                            width: '0.9rem',
+                            height: '0.9rem',
+                            backgroundColor: color,
+                            borderRadius: radiusMapDot[type],
+                            transform: transformMap[type] || 'none',
+                            boxShadow: shadowMap[type],
+                        }}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const cornerOuterRadius: Record<CornerSquareType, string> = {
+    square: '8px',
+    dot: '999px',
+    'extra-rounded': '14px',
+};
+
+const cornerInnerRadius: Record<CornerDotType, string> = {
+    square: '6px',
+    dot: '999px',
+};
+
+const CornerStylePreview: React.FC<{
+    variant: 'outer' | 'inner';
+    type: CornerSquareType | CornerDotType;
+    color: string;
+}> = ({ variant, type, color }) => {
+    if (variant === 'outer') {
+        const outerType = type as CornerSquareType;
+        const holeRadius = outerType === 'dot' ? '999px' : outerType === 'extra-rounded' ? '14px' : '6px';
+        return (
+            <div className="flex items-center justify-center w-full">
+                <div className="relative w-16 h-16">
+                    <div
+                        className="absolute inset-0"
+                        style={{
+                            borderRadius: cornerOuterRadius[outerType],
+                            backgroundColor: color,
+                            opacity: 0.9,
+                        }}
+                    />
+                    <div
+                        className="absolute inset-[20%]"
+                        style={{
+                            borderRadius: holeRadius,
+                            backgroundColor: 'rgba(15,23,42,0.95)',
+                        }}
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    const innerType = type as CornerDotType;
+    return (
+        <div className="flex items-center justify-center w-full">
+            <div className="w-16 h-16 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-center">
+                <div
+                    style={{
+                        width: '46%',
+                        height: '46%',
+                        backgroundColor: color,
+                        borderRadius: cornerInnerRadius[innerType],
+                    }}
+                />
+            </div>
+        </div>
+    );
+};
+
+const FinderPatternPreview: React.FC<{
+    outer: CornerSquareType;
+    inner: CornerDotType;
+    fgColor: string;
+    bgColor: string;
+}> = ({ outer, inner, fgColor, bgColor }) => {
+    const resolvedBg = bgColor === 'transparent' ? DEFAULT_TRANSPARENT_BG : bgColor;
+    const cells = [0, 1, 2];
+
+    return (
+        <div className="flex flex-col gap-3 mb-4">
+            <p className="text-xs text-gray-400">Preview how the finder eyes render with your current color palette.</p>
+            <div className="flex items-center justify-between gap-4">
+                {cells.map((cell) => (
+                    <div
+                        key={cell}
+                        className="relative w-20 h-20 rounded-2xl border border-white/10 flex items-center justify-center"
+                        style={{ backgroundColor: resolvedBg }}
+                    >
+                        <div
+                            className="flex items-center justify-center"
+                            style={{
+                                width: '78%',
+                                height: '78%',
+                                backgroundColor: fgColor,
+                                borderRadius: cornerOuterRadius[outer],
+                            }}
+                        >
+                            <div
+                                className="flex items-center justify-center"
+                                style={{
+                                    width: '48%',
+                                    height: '48%',
+                                    backgroundColor: resolvedBg,
+                                    borderRadius: outer === 'dot' ? '999px' : outer === 'extra-rounded' ? '14px' : '6px',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        width: '60%',
+                                        height: '60%',
+                                        backgroundColor: fgColor,
+                                        borderRadius: cornerInnerRadius[inner],
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 const ScanReadinessCard: React.FC<{
     readiness: ReadinessResult;
     scanDistanceFt: number;
@@ -1428,16 +1626,48 @@ const StylePreviewIcon: React.FC<{ type: string }> = ({ type }) => {
     return <div className="flex items-center justify-center w-8 h-8 rounded-md bg-white/5">{iconStyles[type] || iconStyles['square']}</div>;
 };
 
-const VisualSegmentedControl = <T extends string>({ label, options, value, onChange, gridCols }: { label:string; options: {value: T, label: string}[]; value: T; onChange: (value: T) => void; gridCols?: string; }) => (
+const VisualSegmentedControl = <T extends string>({
+    label,
+    options,
+    value,
+    onChange,
+    gridCols,
+    renderPreview,
+}: {
+    label: string;
+    options: { value: T; label: string; description?: string }[];
+    value: T;
+    onChange: (value: T) => void;
+    gridCols?: string;
+    renderPreview?: (option: { value: T; label: string; description?: string }) => React.ReactNode;
+}) => (
     <div>
-        <label className="block text-sm font-medium text-gray-400 mb-2">{label}</label>
-        <div className={`grid ${gridCols || 'grid-cols-3'} gap-2`}>
-            {options.map(option => (
-                <button key={option.value} onClick={() => onChange(option.value)} className={`p-2 text-sm rounded-lg transition-colors flex flex-col items-center justify-center gap-2 aspect-square ${value === option.value ? 'bg-indigo-500/50 text-white border border-indigo-500/70' : 'text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10'}`}>
-                    <StylePreviewIcon type={option.value} />
-                    <span className="text-xs">{option.label}</span>
-                </button>
-            ))}
+        <label className="block text-sm font-medium text-gray-300 mb-2">{label}</label>
+        <div className={`grid ${gridCols || 'grid-cols-3'} gap-3`}>
+            {options.map(option => {
+                const preview = renderPreview ? renderPreview(option) : <StylePreviewIcon type={option.value} />;
+                const isActive = value === option.value;
+                return (
+                    <button
+                        key={option.value}
+                        onClick={() => onChange(option.value)}
+                        className={`relative flex flex-col items-start gap-3 rounded-xl border px-4 py-3 text-left transition-all hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${
+                            isActive
+                                ? 'border-indigo-400/70 bg-indigo-500/20 text-white shadow-lg shadow-indigo-500/20'
+                                : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'
+                        }`}
+                    >
+                        <div className="flex items-center justify-center w-full">{preview}</div>
+                        <div className="space-y-1">
+                            <p className="text-sm font-semibold text-white/90">{option.label}</p>
+                            {option.description && (
+                                <p className="text-xs text-gray-400 leading-snug">{option.description}</p>
+                            )}
+                        </div>
+                        {isActive && <span className="absolute top-3 right-3 text-indigo-300"><MaterialIcon name="check_circle" className="!text-base" /></span>}
+                    </button>
+                );
+            })}
         </div>
     </div>
 );
@@ -1455,7 +1685,7 @@ const FinderPatternExplanation = () => (
             <rect x="0.5" y="18.5" width="6" height="6" stroke="rgb(129 140 248)" rx="1"/>
         </svg>
         <span>
-            Customize the "eyes" of the QR code. The <strong>outer square</strong> and <strong>inner dot</strong> can have different styles.
+            Customize the QR finder “eyes.” Mix and match the <strong>outer eye</strong> and <strong>inner pupil</strong>, then preview the trio of corners in real time above the controls.
         </span>
     </div>
 );
