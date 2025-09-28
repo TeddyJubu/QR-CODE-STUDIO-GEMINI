@@ -37,4 +37,5 @@ export interface QRCodeConfig {
   cornerDotType: CornerDotType;
   errorCorrectionLevel: ErrorCorrectionLevel;
   image?: string;
+  rawUrl?: string;
 }

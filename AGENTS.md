@@ -14,3 +14,6 @@ Automated tests are not yet wired in; document manual QA steps in your pull requ
 
 ## Commit & Pull Request Guidelines
 Follow the conventional commits style observed in history (`feat:`, `fix:`, `chore:`) and keep messages under 72 characters. Each PR should include: a concise summary, relevant issue links, screenshots or GIFs for UI changes, and a checklist of manual tests. Request review once lint/build commands pass and flag any breaking changes in the description.
+
+## Analytics & Integrations
+`App.tsx` now exposes a Scan Readiness card and ROI dashboard fed by mock analytics data. Swap in live sources by streaming scan events into your backend and recomputing the memoized `analyticsInsights`. To push metrics to GA4, call the Measurement Protocol with each scan (include `client_id`, `utm_*`, and revenue fields) and reuse the UTM builder’s state for attribution. Marketing platform hooks should land in a dedicated integration utility—avoid embedding API calls directly in React components.

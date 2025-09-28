@@ -2,6 +2,7 @@ import { QRCodeConfig, DotType, CornerSquareType, CornerDotType, ErrorCorrection
 
 export const DEFAULT_QR_CODE_CONFIG: Omit<QRCodeConfig, 'id' | 'name'> = {
   data: 'https://example.com',
+  rawUrl: 'https://example.com',
   isDynamic: false,
   contentType: 'url',
   fgColor: '#FFFFFF',
