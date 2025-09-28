@@ -565,13 +565,29 @@ const ColorControls: React.FC<{ fgColor: string; bgColor: string; onFgColorChang
 
 const ColorInput: React.FC<{ label: string; color: string; onChange: (c: string) => void; }> = ({ label, color, onChange }) => {
     const transparentBg = '#1a233b';
+    const inputValue = color === 'transparent' ? transparentBg : color;
     return (
         <div className="flex-1">
             <span className="text-xs text-gray-400">{label}</span>
             <div className="flex items-center space-x-2 mt-1 w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 relative">
-                <input type="color" value={color} onChange={e => onChange(e.target.value)} className="absolute w-6 h-6 rounded-md opacity-0 cursor-pointer"/>
+                <input
+                    type="color"
+                    value={inputValue}
+                    onChange={e => onChange(e.target.value)}
+                    className="absolute w-6 h-6 rounded-md opacity-0 cursor-pointer"
+                    aria-label={`${label} color picker`}
+                />
                 <div style={{backgroundColor: color === 'transparent' ? transparentBg : color}} className={`w-6 h-6 rounded-md border border-white/10 ${color === 'transparent' ? 'bg-transparent-grid' : ''}`}></div>
-                <span className="text-sm font-mono text-gray-300">{color === 'transparent' ? 'TRANSPARENT' : color.toUpperCase()}</span>
+                <span className="text-sm font-mono text-gray-300 flex-1">{color === 'transparent' ? 'TRANSPARENT' : color.toUpperCase()}</span>
+                {color !== 'transparent' && (
+                    <button
+                        type="button"
+                        onClick={() => onChange('transparent')}
+                        className="text-xs text-indigo-300 hover:text-indigo-200 transition-colors"
+                    >
+                        Clear
+                    </button>
+                )}
             </div>
         </div>
     );
