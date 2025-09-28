@@ -14,6 +14,10 @@ import {
 } from './components/icons';
 
 const DEFAULT_TRANSPARENT_BG = '#0f172a';
+const LIGHT_TRANSPARENT_BG = '#f1f5f9';
+const LIGHT_SURFACE_ACCENT = '#e2e8f0';
+
+type Theme = 'dark' | 'light';
 
 type RGB = { r: number; g: number; b: number };
 type ReadinessWarning = { id: string; message: string };
@@ -167,7 +171,21 @@ const stripUtmParams = (value: string) => {
   }
 };
 
+const getInitialTheme = (): Theme => {
+  if (typeof window !== 'undefined') {
+    const stored = window.localStorage.getItem('qr-theme');
+    if (stored === 'light' || stored === 'dark') {
+      return stored;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+      return 'light';
+    }
+  }
+  return 'dark';
+};
+
 const App: React.FC = () => {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [currentConfig, setCurrentConfig] = useState<QRCodeConfig>({
     ...DEFAULT_QR_CODE_CONFIG,
     id: `qr-${Date.now()}`,
@@ -199,7 +217,8 @@ const App: React.FC = () => {
   const [emailData, setEmailData] = useState({ address: '', subject: '', body: '' });
   const [vCardData, setVCardData] = useState({ firstName: '', lastName: '', org: '', phone: '', email: '' });
   const readiness = useMemo<ReadinessResult>(() => {
-    const resolvedBg = currentConfig.bgColor === 'transparent' ? DEFAULT_TRANSPARENT_BG : currentConfig.bgColor;
+    const fallbackBg = theme === 'light' ? LIGHT_TRANSPARENT_BG : DEFAULT_TRANSPARENT_BG;
+    const resolvedBg = currentConfig.bgColor === 'transparent' ? fallbackBg : currentConfig.bgColor;
     const fgColor = currentConfig.fgColor ?? '#000000';
     const fgLum = relativeLuminance(fgColor);
     const bgLum = relativeLuminance(resolvedBg);
@@ -258,7 +277,7 @@ const App: React.FC = () => {
         recommendedPixelSize
       }
     };
-  }, [currentConfig.bgColor, currentConfig.fgColor, printSizeIn, scanDistanceFt]);
+  }, [currentConfig.bgColor, currentConfig.fgColor, printSizeIn, scanDistanceFt, theme]);
 
   const urlValidation = useMemo(() => normalizeUrl(baseUrl), [baseUrl]);
 
@@ -307,7 +326,14 @@ const App: React.FC = () => {
   }, []);
   
   useEffect(() => {
-    document.documentElement.classList.add('dark');
+    document.documentElement.setAttribute('data-theme', theme);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('qr-theme', theme);
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
   const updateConfig = useCallback(<K extends keyof QRCodeConfig>(key: K, value: QRCodeConfig[K]) => {
@@ -431,10 +457,12 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row h-screen font-sans text-gray-200 bg-gradient-to-br from-gray-900 to-slate-900">
-        <div className="w-full lg:w-3/5 p-6 lg:p-8 overflow-y-auto space-y-6 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-800/50">
+    <div className={`theme-container ${theme === 'light' ? 'theme-light' : 'theme-dark'} flex flex-col lg:flex-row font-sans min-h-screen`}>
+        <div className="w-full lg:w-3/5 p-6 lg:p-8 overflow-y-auto space-y-6 scrollbar-thin">
             <Header
                 onHistoryClick={() => setIsLibraryOpen(true)}
+                onToggleTheme={toggleTheme}
+                theme={theme}
             />
             <ContentTypeTabs activeType={activeContentType} onTypeChange={setActiveContentType} />
             <GlassCard title="Content" isOpen={openSections.content} setIsOpen={() => toggleSection('content')} isCollapsible>
@@ -483,7 +511,13 @@ const App: React.FC = () => {
             </div>
             
             <GlassCard title="Colors" isOpen={openSections.colors} setIsOpen={() => toggleSection('colors')} isCollapsible>
-                <ColorControls fgColor={currentConfig.fgColor} bgColor={currentConfig.bgColor} onFgColorChange={(c) => updateConfig('fgColor', c)} onBgColorChange={(c) => updateConfig('bgColor', c)} />
+                <ColorControls
+                    fgColor={currentConfig.fgColor}
+                    bgColor={currentConfig.bgColor}
+                    onFgColorChange={(c) => updateConfig('fgColor', c)}
+                    onBgColorChange={(c) => updateConfig('bgColor', c)}
+                    theme={theme}
+                />
             </GlassCard>
 
             <GlassCard title="Error Correction" isOpen={openSections.errorCorrection} setIsOpen={() => toggleSection('errorCorrection')} isCollapsible>
@@ -518,7 +552,7 @@ const App: React.FC = () => {
                     onChange={(v) => updateConfig('dotType', v as DotType)}
                     gridCols="grid-cols-1 sm:grid-cols-2"
                     renderPreview={(option) => (
-                        <DotStylePreview type={option.value as DotType} color={currentConfig.fgColor} />
+                        <DotStylePreview type={option.value as DotType} color={currentConfig.fgColor} theme={theme} />
                     )}
                 />
             </GlassCard>
@@ -530,6 +564,7 @@ const App: React.FC = () => {
                     inner={currentConfig.cornerDotType}
                     fgColor={currentConfig.fgColor}
                     bgColor={currentConfig.bgColor}
+                    theme={theme}
                 />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <VisualSegmentedControl
@@ -543,6 +578,7 @@ const App: React.FC = () => {
                                 variant="outer"
                                 type={option.value as CornerSquareType}
                                 color={currentConfig.fgColor}
+                                theme={theme}
                             />
                         )}
                     />
@@ -557,6 +593,7 @@ const App: React.FC = () => {
                                 variant="inner"
                                 type={option.value as CornerDotType}
                                 color={currentConfig.fgColor}
+                                theme={theme}
                             />
                         )}
                     />
@@ -580,23 +617,23 @@ const App: React.FC = () => {
                 </div>
             </GlassCard>
         </div>
-        <div className="w-full lg:w-2/5 p-6 lg:p-8 flex flex-col justify-center items-center bg-black/20">
+        <div className="w-full lg:w-2/5 p-6 lg:p-8 flex flex-col items-center justify-start">
             <div className="w-full max-w-sm">
                 <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-white">Live Preview</h2>
+                    <h2 className="text-lg font-semibold">Live Preview</h2>
                     <p className="text-xs text-gray-400">Updates automatically</p>
                 </div>
-                <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 flex justify-center items-center mb-6 shadow-lg">
+                <div className="glass-card border rounded-2xl backdrop-blur-xl flex justify-center items-center mb-6 shadow-lg p-6 aspect-square">
                     <motion.div key={currentConfig.id + JSON.stringify(currentConfig)} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }} className="rounded-lg">
-                        <QRCodePreview config={currentConfig} qrRef={qrRef} />
+                        <QRCodePreview config={currentConfig} qrRef={qrRef} theme={theme} />
                     </motion.div>
                 </div>
-                <div className="p-4 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 mb-6 text-sm">
-                    <h3 className="font-semibold text-white mb-3">QR Code Details</h3>
+                <div className="glass-card border rounded-2xl backdrop-blur-xl mb-6 text-sm p-4">
+                    <h3 className="font-semibold mb-3">QR Code Details</h3>
                     <div className="space-y-2">
-                        <div className="flex justify-between"><span className="text-gray-400">Type:</span> <span className="font-medium text-white capitalize">{currentConfig.contentType}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-400">Size:</span> <span className="font-medium text-white">256x256px</span></div>
-                        <ScanabilityIndicator fgColor={currentConfig.fgColor} bgColor={currentConfig.bgColor} />
+                        <div className="flex justify-between"><span className="text-gray-400">Type:</span> <span className="font-medium capitalize">{currentConfig.contentType}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-400">Size:</span> <span className="font-medium">256x256px</span></div>
+                        <ScanabilityIndicator fgColor={currentConfig.fgColor} bgColor={currentConfig.bgColor} theme={theme} />
                     </div>
                 </div>
                 <div className="mb-6">
@@ -622,7 +659,7 @@ const App: React.FC = () => {
                     <ActionButton onClick={() => handleDownload('svg')} text="SVG" />
                     <ActionButton onClick={() => setIsScanModalOpen(true)} icon={<CameraIcon />} text="Test" />
                 </div>
-                <button onClick={handleSave} className="mt-4 w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium rounded-xl text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors">
+                <button onClick={handleSave} className="theme-button theme-button-primary mt-4 w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium rounded-xl transition-colors">
                     <SaveIcon /> <span>Save QR Code</span>
                 </button>
             </div>
@@ -653,33 +690,38 @@ const App: React.FC = () => {
 
 const Header: React.FC<{
     onHistoryClick: () => void;
-}> = ({ onHistoryClick }) => (
+    onToggleTheme: () => void;
+    theme: Theme;
+}> = ({ onHistoryClick, onToggleTheme, theme }) => (
     <header className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
             <LogoIcon />
             <div>
-                <h1 className="text-xl font-bold text-white">QR Code Studio</h1>
+                <h1 className="text-xl font-bold">QR Code Studio</h1>
                 <p className="text-sm text-gray-400">Create beautiful, custom QR codes</p>
             </div>
         </div>
         <div className="flex items-center space-x-2">
-            <GlassButton onClick={onHistoryClick}><HistoryIcon /></GlassButton>
-            <GlassButton><AccountIcon /></GlassButton>
+            <GlassButton onClick={onToggleTheme} aria-label="Toggle theme">
+                <MaterialIcon name={theme === 'light' ? 'dark_mode' : 'light_mode'} />
+            </GlassButton>
+            <GlassButton onClick={onHistoryClick} aria-label="Open history"><HistoryIcon /></GlassButton>
+            <GlassButton aria-label="Account"><AccountIcon /></GlassButton>
         </div>
     </header>
 );
 
-const GlassButton: React.FC<{ children: React.ReactNode; onClick?: () => void;}> = ({ children, onClick }) => (
-    <button onClick={onClick} className="p-2 rounded-xl text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors">
+const GlassButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ children, className = '', ...props }) => (
+    <button {...props} className={`theme-button p-2 rounded-xl flex items-center justify-center transition-colors ${className}`}>
         {children}
     </button>
 );
 
 const GlassCard: React.FC<{ title?: string; children: React.ReactNode; isCollapsible?: boolean; isOpen?: boolean; setIsOpen?: () => void; }> = ({ title, children, isCollapsible, isOpen, setIsOpen }) => (
-    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl">
+    <div className="glass-card backdrop-blur-xl border rounded-2xl">
         {title && (
             <button onClick={() => isCollapsible && setIsOpen && setIsOpen()} className={`flex items-center justify-between w-full p-4 ${isCollapsible && isOpen ? 'border-b border-white/10' : ''} ${isCollapsible ? '' : 'cursor-default'}`}>
-                <h3 className="font-semibold text-white">{title}</h3>
+                <h3 className="font-semibold">{title}</h3>
                 {isCollapsible && (
                     <div className="p-1 text-gray-400">
                         <motion.div animate={{ rotate: isOpen ? 0 : -180 }} transition={{ duration: 0.3 }}>
@@ -983,8 +1025,8 @@ const contentTypes: { id: ContentType, label: string, icon: React.ReactNode }[] 
 const ContentTypeTabs: React.FC<{activeType: ContentType; onTypeChange: (type: ContentType) => void;}> = ({ activeType, onTypeChange }) => (
     <div className="flex space-x-1 p-1 rounded-xl bg-white/5 backdrop-blur-xl border border-white/10">
         {contentTypes.map(({ id, label, icon }) => (
-            <button key={id} onClick={() => onTypeChange(id)} className={`relative flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${ activeType !== id ? 'text-gray-300 hover:bg-white/10' : 'text-white'}`}>
-                {activeType === id && <motion.div layoutId="active-content-type" className="absolute inset-0 bg-white/10 rounded-lg shadow-sm" />}
+            <button key={id} onClick={() => onTypeChange(id)} className={`relative flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${ activeType !== id ? 'text-gray-300 hover:bg-white/10' : 'text-black'}`}>
+                {activeType === id && <motion.div layoutId="active-content-type" className="absolute inset-0 bg-[#F3F3F3] rounded-lg shadow-sm" />}
                 <span className="relative z-10">{icon}</span>
                 <span className="relative z-10">{label}</span>
             </button>
@@ -1033,15 +1075,15 @@ const FormCheckbox: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { lab
     </div>
 );
 
-const ColorControls: React.FC<{ fgColor: string; bgColor: string; onFgColorChange: (c: string) => void; onBgColorChange: (c: string) => void; }> = ({ fgColor, bgColor, onFgColorChange, onBgColorChange }) => (
+const ColorControls: React.FC<{ fgColor: string; bgColor: string; onFgColorChange: (c: string) => void; onBgColorChange: (c: string) => void; theme: Theme; }> = ({ fgColor, bgColor, onFgColorChange, onBgColorChange, theme }) => (
     <div className="flex space-x-4">
-        <ColorInput label="Foreground" color={fgColor} onChange={onFgColorChange} />
-        <ColorInput label="Background" color={bgColor} onChange={onBgColorChange} />
+        <ColorInput label="Foreground" color={fgColor} onChange={onFgColorChange} theme={theme} />
+        <ColorInput label="Background" color={bgColor} onChange={onBgColorChange} theme={theme} />
     </div>
 );
 
-const ColorInput: React.FC<{ label: string; color: string; onChange: (c: string) => void; }> = ({ label, color, onChange }) => {
-    const transparentBg = '#1a233b';
+const ColorInput: React.FC<{ label: string; color: string; onChange: (c: string) => void; theme: Theme; }> = ({ label, color, onChange, theme }) => {
+    const transparentBg = theme === 'light' ? LIGHT_SURFACE_ACCENT : '#1a233b';
     const inputValue = color === 'transparent' ? transparentBg : color;
     return (
         <div className="flex-1">
@@ -1135,7 +1177,7 @@ const UtmBuilder: React.FC<{
                                         value={params[field.key]}
                                         onChange={e => handleParamChange(field.key, e.target.value)}
                                         placeholder={field.placeholder}
-                                        className="bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none"
+                                        className="bg-[#F3F3F3] border border-white/10 rounded-lg px-3 py-2 text-sm text-black focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none placeholder:text-gray-700"
                                     />
                                     {field.helper && <span className="text-[0.65rem] text-gray-500">{field.helper}</span>}
                                 </label>
@@ -1164,7 +1206,7 @@ const radiusMapDot: Record<DotType, string> = {
     'extra-rounded': '12px',
 };
 
-const DotStylePreview: React.FC<{ type: DotType; color: string }> = ({ type, color }) => {
+const DotStylePreview: React.FC<{ type: DotType; color: string; theme: Theme }> = ({ type, color, theme }) => {
     const cells = Array.from({ length: 9 });
     const transformMap: Partial<Record<DotType, string>> = {
         dots: 'scale(0.85)',
@@ -1176,10 +1218,12 @@ const DotStylePreview: React.FC<{ type: DotType; color: string }> = ({ type, col
         classy: 'inset 0 0 0 1px rgba(255,255,255,0.35)',
         'classy-rounded': 'inset 0 0 0 1px rgba(255,255,255,0.35)',
     };
+    const containerBg = theme === 'light' ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.7)';
+    const borderColor = theme === 'light' ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.25)';
 
     return (
         <div className="w-full flex justify-center">
-            <div className="grid grid-cols-3 gap-1 rounded-lg border border-white/10 bg-slate-900/60 p-2">
+            <div className="grid grid-cols-3 gap-1 rounded-lg p-2" style={{ backgroundColor: containerBg, border: `1px solid ${borderColor}` }}>
                 {cells.map((_, idx) => (
                     <span
                         key={idx}
@@ -1214,10 +1258,12 @@ const CornerStylePreview: React.FC<{
     variant: 'outer' | 'inner';
     type: CornerSquareType | CornerDotType;
     color: string;
-}> = ({ variant, type, color }) => {
+    theme: Theme;
+}> = ({ variant, type, color, theme }) => {
     if (variant === 'outer') {
         const outerType = type as CornerSquareType;
         const holeRadius = outerType === 'dot' ? '999px' : outerType === 'extra-rounded' ? '14px' : '6px';
+        const innerBg = theme === 'light' ? 'rgba(248, 250, 252, 0.98)' : 'rgba(15, 23, 42, 0.95)';
         return (
             <div className="flex items-center justify-center w-full">
                 <div className="relative w-16 h-16">
@@ -1226,14 +1272,15 @@ const CornerStylePreview: React.FC<{
                         style={{
                             borderRadius: cornerOuterRadius[outerType],
                             backgroundColor: color,
-                            opacity: 0.9,
+                            boxShadow: theme === 'light' ? '0 6px 18px rgba(148, 163, 184, 0.35)' : '0 4px 12px rgba(15, 23, 42, 0.6)',
                         }}
                     />
                     <div
                         className="absolute inset-[20%]"
                         style={{
                             borderRadius: holeRadius,
-                            backgroundColor: 'rgba(15,23,42,0.95)',
+                            backgroundColor: innerBg,
+                            boxShadow: theme === 'light' ? 'inset 0 0 0 1px rgba(148, 163, 184, 0.35)' : 'none',
                         }}
                     />
                 </div>
@@ -1242,9 +1289,11 @@ const CornerStylePreview: React.FC<{
     }
 
     const innerType = type as CornerDotType;
+    const surfaceBg = theme === 'light' ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.65)';
+    const borderColor = theme === 'light' ? 'rgba(148, 163, 184, 0.55)' : 'rgba(148, 163, 184, 0.25)';
     return (
         <div className="flex items-center justify-center w-full">
-            <div className="w-16 h-16 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-xl flex items-center justify-center" style={{ backgroundColor: surfaceBg, border: `1px solid ${borderColor}` }}>
                 <div
                     style={{
                         width: '46%',
@@ -1263,9 +1312,13 @@ const FinderPatternPreview: React.FC<{
     inner: CornerDotType;
     fgColor: string;
     bgColor: string;
-}> = ({ outer, inner, fgColor, bgColor }) => {
-    const resolvedBg = bgColor === 'transparent' ? DEFAULT_TRANSPARENT_BG : bgColor;
+    theme: Theme;
+}> = ({ outer, inner, fgColor, bgColor, theme }) => {
+    const fallbackBg = theme === 'light' ? LIGHT_TRANSPARENT_BG : DEFAULT_TRANSPARENT_BG;
+    const resolvedBg = bgColor === 'transparent' ? fallbackBg : bgColor;
     const cells = [0, 1, 2];
+    const cardBg = theme === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(15,23,42,0.85)';
+    const borderColor = theme === 'light' ? 'rgba(148, 163, 184, 0.45)' : 'rgba(148, 163, 184, 0.25)';
 
     return (
         <div className="flex flex-col gap-3 mb-4">
@@ -1274,8 +1327,8 @@ const FinderPatternPreview: React.FC<{
                 {cells.map((cell) => (
                     <div
                         key={cell}
-                        className="relative w-20 h-20 rounded-2xl border border-white/10 flex items-center justify-center"
-                        style={{ backgroundColor: resolvedBg }}
+                        className="relative w-20 h-20 rounded-2xl flex items-center justify-center"
+                        style={{ backgroundColor: cardBg, border: `1px solid ${borderColor}` }}
                     >
                         <div
                             className="flex items-center justify-center"
@@ -1721,10 +1774,10 @@ const LogoUpload: React.FC<{image?: string; onUpload: (e: React.ChangeEvent<HTML
     </div>
 );
 
-const ScanabilityIndicator: React.FC<{ fgColor: string; bgColor: string; }> = ({ fgColor, bgColor }) => {
+const ScanabilityIndicator: React.FC<{ fgColor: string; bgColor: string; theme: Theme; }> = ({ fgColor, bgColor, theme }) => {
     // This is a simplified contrast check. A real-world scenario would use a more robust library.
     const getLuminance = (hex: string) => {
-        if (hex === 'transparent') hex = '#1a233b';
+        if (hex === 'transparent') hex = theme === 'light' ? LIGHT_TRANSPARENT_BG : '#1a233b';
         hex = hex.replace('#', '');
         const rgb = parseInt(hex, 16);
         const r = (rgb >> 16) & 0xff;
@@ -1764,11 +1817,7 @@ const ScanabilityIndicator: React.FC<{ fgColor: string; bgColor: string; }> = ({
 };
 
 const ActionButton: React.FC<{ onClick: () => void; text: string; icon?: React.ReactNode; isPrimary?: boolean }> = ({ onClick, text, icon, isPrimary }) => (
-    <button onClick={onClick} className={`w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
-        isPrimary
-            ? 'text-white bg-indigo-600 hover:bg-indigo-700'
-            : 'text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10'
-    }`}>
+    <button onClick={onClick} className={`theme-button w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-colors ${isPrimary ? 'theme-button-primary' : ''}`}>
         {icon && <span>{icon}</span>}
         <span>{text}</span>
     </button>
