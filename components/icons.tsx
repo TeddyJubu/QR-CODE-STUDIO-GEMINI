@@ -19,11 +19,15 @@ export const EmailIcon = () => <MaterialIcon name="email" />;
 
 // Icons for Header/Actions
 export const HistoryIcon = () => <MaterialIcon name="history" />;
-export const TemplatesIcon = () => <MaterialIcon name="grid_view" />;
-export const SettingsIcon = () => <MaterialIcon name="settings" />;
-export const SunIcon = () => <MaterialIcon name="light_mode" />;
+export const AccountIcon = () => <MaterialIcon name="account_circle" />;
 export const SaveIcon = () => <MaterialIcon name="save" />;
 export const DownloadIcon = () => <MaterialIcon name="download" />;
+export const CameraIcon = () => <MaterialIcon name="camera" />;
+// FIX: Update InfoIcon to accept a className prop. This allows overriding default styles.
+export const InfoIcon = ({ className = '!text-base' }: { className?: string }) => <MaterialIcon name="help_outline" className={className} />;
+export const UploadIcon = () => <MaterialIcon name="upload" className="!text-base" />;
+export const RemoveIcon = () => <MaterialIcon name="close" className="!text-base" />;
+
 
 // Icons for UI
 export const ChevronUpIcon = () => <MaterialIcon name="expand_less" />;

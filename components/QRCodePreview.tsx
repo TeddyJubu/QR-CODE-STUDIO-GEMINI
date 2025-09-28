@@ -8,7 +8,7 @@ interface QRCodePreviewProps {
 
 const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
   const ref = useRef<HTMLDivElement>(null);
-  const { data, fgColor, bgColor, dotType, cornerSquareType, cornerDotType } = config;
+  const { data, fgColor, bgColor, dotType, cornerSquareType, cornerDotType, image, errorCorrectionLevel } = config;
 
   useEffect(() => {
     if (ref.current) {
@@ -18,7 +18,11 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
         height: 256,
         type: 'svg',
         data: data,
+        image: image,
         margin: 0,
+        qrOptions: {
+          errorCorrectionLevel: errorCorrectionLevel,
+        },
         dotsOptions: {
           color: fgColor,
           type: dotType,
@@ -33,6 +37,12 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
         cornersDotOptions: {
             color: fgColor,
             type: cornerDotType
+        },
+        imageOptions: {
+            hideBackgroundDots: true,
+            imageSize: 0.4,
+            margin: 4,
+            crossOrigin: 'anonymous',
         }
       });
       qrRef.current.append(ref.current);
@@ -44,7 +54,11 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
     if (qrRef.current) {
       qrRef.current.update({
         data: data,
+        image: image,
         margin: 0,
+        qrOptions: {
+            errorCorrectionLevel: errorCorrectionLevel,
+        },
         dotsOptions: {
           color: fgColor,
           type: dotType,
@@ -60,7 +74,7 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
         }
       });
     }
-  }, [data, fgColor, bgColor, dotType, cornerSquareType, cornerDotType, qrRef]);
+  }, [data, fgColor, bgColor, dotType, cornerSquareType, cornerDotType, image, qrRef, errorCorrectionLevel]);
 
   return <div ref={ref} className="transition-all duration-300 ease-in-out" />;
 };
