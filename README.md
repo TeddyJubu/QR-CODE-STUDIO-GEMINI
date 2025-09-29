@@ -22,3 +22,12 @@ For code style, testing expectations, and PR checklists, see [AGENTS.md](AGENTS.
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Docker
+
+1. Ensure any required environment files (for example `.env.local`) are present in the project root before building so the values are baked into the bundle.
+2. Build the production image:
+   `docker build -t qr-code-studio .`
+3. Run the container locally:
+   `docker run --rm -p 8080:80 qr-code-studio`
+4. Open your browser to `http://localhost:8080` to access the deployed bundle.
