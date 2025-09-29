@@ -4,11 +4,38 @@ import { QRCodeConfig } from '../types';
 interface QRCodePreviewProps {
   config: QRCodeConfig;
   qrRef: React.MutableRefObject<any | null>;
+  theme?: 'light' | 'dark';
 }
 
-const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
+const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef, theme = 'dark' }) => {
   const ref = useRef<HTMLDivElement>(null);
   const { data, fgColor, bgColor, dotType, cornerSquareType, cornerDotType, image, errorCorrectionLevel } = config;
+
+  // Ensure proper contrast based on theme
+  const getThemeAwareColors = () => {
+    // If background is transparent, use theme-appropriate colors
+    if (bgColor === 'transparent') {
+      if (theme === 'light') {
+        return {
+          resolvedFgColor: '#000000', // Black QR code in light mode
+          resolvedBgColor: '#FFFFFF'  // White background in light mode
+        };
+      } else {
+        return {
+          resolvedFgColor: '#FFFFFF', // White QR code in dark mode
+          resolvedBgColor: '#000000'  // Black background in dark mode
+        };
+      }
+    }
+    
+    // For non-transparent backgrounds, use the configured colors
+    return {
+      resolvedFgColor: fgColor,
+      resolvedBgColor: bgColor
+    };
+  };
+
+  const { resolvedFgColor, resolvedBgColor } = getThemeAwareColors();
 
   useEffect(() => {
     if (ref.current) {
@@ -24,18 +51,18 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
           errorCorrectionLevel: errorCorrectionLevel,
         },
         dotsOptions: {
-          color: fgColor,
+          color: resolvedFgColor,
           type: dotType,
         },
         backgroundOptions: {
-          color: bgColor,
+          color: resolvedBgColor,
         },
         cornersSquareOptions: {
-          color: fgColor,
+          color: resolvedFgColor,
           type: cornerSquareType,
         },
         cornersDotOptions: {
-            color: fgColor,
+            color: resolvedFgColor,
             type: cornerDotType
         },
         imageOptions: {
@@ -60,21 +87,21 @@ const QRCodePreview: React.FC<QRCodePreviewProps> = ({ config, qrRef }) => {
             errorCorrectionLevel: errorCorrectionLevel,
         },
         dotsOptions: {
-          color: fgColor,
+          color: resolvedFgColor,
           type: dotType,
         },
-        backgroundOptions: { color: bgColor },
+        backgroundOptions: { color: resolvedBgColor },
         cornersSquareOptions: {
-          color: fgColor,
+          color: resolvedFgColor,
           type: cornerSquareType,
         },
         cornersDotOptions: {
-            color: fgColor,
+            color: resolvedFgColor,
             type: cornerDotType,
         }
       });
     }
-  }, [data, fgColor, bgColor, dotType, cornerSquareType, cornerDotType, image, qrRef, errorCorrectionLevel]);
+  }, [data, fgColor, bgColor, dotType, cornerSquareType, cornerDotType, image, qrRef, errorCorrectionLevel, theme]);
 
   return <div ref={ref} className="transition-all duration-300 ease-in-out" />;
 };

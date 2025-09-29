@@ -1,6 +1,6 @@
 
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeConfig, ContentType, DotType, CornerSquareType, CornerDotType, ErrorCorrectionLevel } from './types';
 import { DEFAULT_QR_CODE_CONFIG, DOT_STYLES, CORNER_SQUARE_STYLES, CORNER_DOT_STYLES, TEMPLATES, ERROR_CORRECTION_LEVELS } from './constants';
@@ -13,7 +13,179 @@ import {
     ChevronUpIcon, ChevronDownIcon, InfoIcon, UploadIcon, RemoveIcon, MaterialIcon, CameraIcon
 } from './components/icons';
 
+const DEFAULT_TRANSPARENT_BG = '#0f172a';
+const LIGHT_TRANSPARENT_BG = '#f1f5f9';
+const LIGHT_SURFACE_ACCENT = '#e2e8f0';
+
+type Theme = 'dark' | 'light';
+
+type RGB = { r: number; g: number; b: number };
+type ReadinessWarning = { id: string; message: string };
+interface ReadinessMetrics {
+  resolvedBg: string;
+  contrastPercent: number;
+  contrastRatio: number;
+  meetsContrast: boolean;
+  isInverted: boolean;
+  sizeOk: boolean;
+  recommendedPrintWidthIn: number;
+  maxDistanceFt: number;
+  recommendedPixelSize: number;
+}
+
+interface ReadinessResult {
+  warnings: ReadinessWarning[];
+  metrics: ReadinessMetrics;
+}
+
+type UtmParams = {
+  source: string;
+  medium: string;
+  campaign: string;
+  term: string;
+  content: string;
+};
+
+type HeatPoint = {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  scans: number;
+  intensity: number;
+};
+
+type FunnelStep = {
+  id: string;
+  label: string;
+  value: number;
+  description: string;
+};
+
+interface AnalyticsData {
+  period: string;
+  totalScans: number;
+  uniqueVisitors: number;
+  retentionRate: number;
+  topLocations: HeatPoint[];
+  funnel: FunnelStep[];
+  roi: {
+    revenue: number;
+    spend: number;
+    roas: number;
+    costPerAcquisition: number;
+    costPerScan: number;
+  };
+  utmBreakdown: { id: string; label: string; scans: number; share: number }[];
+}
+
+const clampHex = (hex: string) => {
+  if (hex.startsWith('#') && hex.length === 4) {
+    const r = hex[1];
+    const g = hex[2];
+    const b = hex[3];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return hex;
+};
+
+const hexToRgb = (hex: string): RGB | null => {
+  const normalized = clampHex(hex);
+  const result = normalized.match(/^#([0-9a-fA-F]{6})$/);
+  if (!result) return null;
+  const value = result[1];
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return { r, g, b };
+};
+
+const channelToLinear = (channel: number) => {
+  const srgb = channel / 255;
+  return srgb <= 0.03928 ? srgb / 12.92 : Math.pow((srgb + 0.055) / 1.055, 2.4);
+};
+
+const relativeLuminance = (hexColor: string): number => {
+  const rgb = hexToRgb(hexColor);
+  if (!rgb) return 0;
+  const { r, g, b } = rgb;
+  const linearR = channelToLinear(r);
+  const linearG = channelToLinear(g);
+  const linearB = channelToLinear(b);
+  return 0.2126 * linearR + 0.7152 * linearG + 0.0722 * linearB;
+};
+
+const contrastRatio = (l1: number, l2: number) => {
+  const [light, dark] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (light + 0.05) / (dark + 0.05);
+};
+
+const hasProtocol = (value: string) => /^[a-zA-Z][a-zA-Z\d+-.]*:/.test(value);
+const looksRelative = (value: string) => value.startsWith('/') || value.startsWith('./') || value.startsWith('../');
+
+const normalizeUrl = (value: string): { normalized: string | null; error: string | null } => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { normalized: null, error: null };
+  }
+  if (looksRelative(trimmed)) {
+    return {
+      normalized: null,
+      error: 'Provide an absolute URL including the protocol (e.g. https://example.com/page).'
+    };
+  }
+  const candidate = hasProtocol(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    new URL(candidate);
+    return { normalized: candidate, error: null };
+  } catch {
+    return {
+      normalized: null,
+      error: 'URL looks invalid — double-check the format.'
+    };
+  }
+};
+
+const buildUrlWithUtm = (target: string, params: UtmParams) => {
+  const url = new URL(target);
+  (Object.entries(params) as [keyof typeof params, string][]).forEach(([key, paramValue]) => {
+    const queryKey = `utm_${key}`;
+    if (paramValue) {
+      url.searchParams.set(queryKey, paramValue);
+    } else {
+      url.searchParams.delete(queryKey);
+    }
+  });
+  return url.toString();
+};
+
+const stripUtmParams = (value: string) => {
+  try {
+    const url = new URL(value);
+    ['source', 'medium', 'campaign', 'term', 'content'].forEach(key => {
+      url.searchParams.delete(`utm_${key}`);
+    });
+    return url.toString();
+  } catch {
+    return value;
+  }
+};
+
+const getInitialTheme = (): Theme => {
+  if (typeof window !== 'undefined') {
+    const stored = window.localStorage.getItem('qr-theme');
+    if (stored === 'light' || stored === 'dark') {
+      return stored;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+      return 'light';
+    }
+  }
+  return 'dark';
+};
+
 const App: React.FC = () => {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [currentConfig, setCurrentConfig] = useState<QRCodeConfig>({
     ...DEFAULT_QR_CODE_CONFIG,
     id: `qr-${Date.now()}`,
@@ -21,21 +193,147 @@ const App: React.FC = () => {
   });
   const [savedQRCodes, setSavedQRCodes] = useLocalStorage<QRCodeConfig[]>('qr-codes-library', []);
   const qrRef = useRef<any | null>(null);
-  const [openSections, setOpenSections] = useState({ content: true, templates: true, colors: true, errorCorrection: true, shape: true, finders: false, logo: false });
+  const [openSections, setOpenSections] = useState({ content: true, templates: true, colors: true, errorCorrection: true, shape: true, finders: false, logo: false, settings: false, readiness: false });
   const [activeContentType, setActiveContentType] = useState<ContentType>('url');
   const [autoErrorCorrection, setAutoErrorCorrection] = useState(true);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+  const [scanDistanceFt, setScanDistanceFt] = useState(6);
+  const [printSizeIn, setPrintSizeIn] = useState(3);
   const templatesRef = useRef<HTMLDivElement>(null);
   
-  const [urlData, setUrlData] = useState(DEFAULT_QR_CODE_CONFIG.data);
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_QR_CODE_CONFIG.rawUrl ?? DEFAULT_QR_CODE_CONFIG.data);
+  const [autoUtmEnabled, setAutoUtmEnabled] = useState(true);
+  const [utmParams, setUtmParams] = useState({
+    source: 'qr-code',
+    medium: 'offline',
+    campaign: 'spring-launch',
+    term: '',
+    content: 'studio'
+  });
   const [textData, setTextData] = useState('');
   const [wifiData, setWifiData] = useState({ ssid: '', password: '', encryption: 'WPA', isHidden: false });
   const [emailData, setEmailData] = useState({ address: '', subject: '', body: '' });
   const [vCardData, setVCardData] = useState({ firstName: '', lastName: '', org: '', phone: '', email: '' });
+  const readiness = useMemo<ReadinessResult>(() => {
+    const fallbackBg = theme === 'light' ? LIGHT_TRANSPARENT_BG : DEFAULT_TRANSPARENT_BG;
+    const resolvedBg = currentConfig.bgColor === 'transparent' ? fallbackBg : currentConfig.bgColor;
+    const fgColor = currentConfig.fgColor ?? '#000000';
+    const fgLum = relativeLuminance(fgColor);
+    const bgLum = relativeLuminance(resolvedBg);
+    const lumDiff = Math.abs(fgLum - bgLum);
+    const maxLum = Math.max(fgLum, bgLum, 0.0001);
+    const relativeDiff = maxLum === 0 ? 0 : lumDiff / maxLum;
+    const ratio = contrastRatio(fgLum, bgLum);
+    const contrastPercent = Math.round(relativeDiff * 100);
+    const meetsContrast = relativeDiff >= 0.4;
+    const isInverted = fgLum > bgLum;
+    const recommendedPrintWidthIn = Number(((scanDistanceFt * 12) / 10).toFixed(2));
+    const maxDistanceFt = Number(((printSizeIn / 12) * 10).toFixed(2));
+    const sizeOk = printSizeIn >= recommendedPrintWidthIn || printSizeIn === 0;
+    const recommendedPixelSize = Math.max(256, Math.round(printSizeIn * 300));
+    const warnings: ReadinessWarning[] = [];
+
+    if (!meetsContrast) {
+      warnings.push({
+        id: 'contrast',
+        message: `Contrast is ${contrastPercent}% — increase the difference to at least 40%.`
+      });
+    }
+
+    if (isInverted) {
+      warnings.push({
+        id: 'inverted',
+        message: 'Light foreground on dark background detected. Most scanners prefer dark modules on a light background.'
+      });
+    }
+
+    if (!sizeOk && printSizeIn > 0) {
+      warnings.push({
+        id: 'size',
+        message: `At ${scanDistanceFt}ft, print at least ${recommendedPrintWidthIn}" wide to follow the 10:1 rule.`
+      });
+    }
+
+    if (currentConfig.bgColor === 'transparent') {
+      warnings.push({
+        id: 'transparent-bg',
+        message: 'Transparent backgrounds inherit real-world colors — double-check contrast on the final surface.'
+      });
+    }
+
+    return {
+      warnings,
+      metrics: {
+        resolvedBg,
+        contrastPercent,
+        contrastRatio: Number(ratio.toFixed(2)),
+        meetsContrast,
+        isInverted,
+        sizeOk,
+        recommendedPrintWidthIn,
+        maxDistanceFt,
+        recommendedPixelSize
+      }
+    };
+  }, [currentConfig.bgColor, currentConfig.fgColor, printSizeIn, scanDistanceFt, theme]);
+
+  const urlValidation = useMemo(() => normalizeUrl(baseUrl), [baseUrl]);
+
+  const utmPreview = useMemo(() => {
+    if (!urlValidation.normalized) return '';
+    return autoUtmEnabled ? buildUrlWithUtm(urlValidation.normalized, utmParams) : urlValidation.normalized;
+  }, [autoUtmEnabled, utmParams, urlValidation.normalized]);
+
+  const analyticsInsights = useMemo<AnalyticsData>(() => {
+    const funnelSteps: FunnelStep[] = [
+      { id: 'scans', label: 'Scans', value: 8420, description: 'Total QR scans captured in-platform.' },
+      { id: 'landings', label: 'Landing Sessions', value: 5680, description: 'Sessions passed to the destination page.' },
+      { id: 'signups', label: 'Leads Captured', value: 1625, description: 'Form submissions attributed to the QR experience.' },
+      { id: 'purchases', label: 'Conversions', value: 486, description: 'Orders recorded from tracked sessions.' },
+    ];
+    const roi = {
+      revenue: 28400,
+      spend: 6200,
+      roas: Number((28400 / 6200).toFixed(2)),
+      costPerAcquisition: Number((6200 / 486).toFixed(2)),
+      costPerScan: Number((6200 / 8420).toFixed(2)),
+    };
+    const utmSources = [
+      { id: 'print', label: 'qr-code / print-collateral', scans: 3920 },
+      { id: 'events', label: 'qr-code / events', scans: 2280 },
+      { id: 'packaging', label: 'qr-code / packaging', scans: 1280 },
+      { id: 'email', label: 'email / re-engagement', scans: 940 },
+    ];
+    const total = utmSources.reduce((sum, item) => sum + item.scans, 0) || 1;
+    return {
+      period: 'Last 30 days',
+      totalScans: funnelSteps[0]?.value ?? 0,
+      uniqueVisitors: 6235,
+      retentionRate: 0.38,
+      topLocations: [
+        { id: 'nyc', label: 'New York, US', lat: 40.7128, lng: -74.006, scans: 1420, intensity: 0.95 },
+        { id: 'la', label: 'Los Angeles, US', lat: 34.0522, lng: -118.2437, scans: 980, intensity: 0.82 },
+        { id: 'lon', label: 'London, UK', lat: 51.5072, lng: -0.1276, scans: 720, intensity: 0.75 },
+        { id: 'tok', label: 'Tokyo, JP', lat: 35.6762, lng: 139.6503, scans: 610, intensity: 0.7 },
+        { id: 'sao', label: 'Sao Paulo, BR', lat: -23.5505, lng: -46.6333, scans: 430, intensity: 0.6 },
+      ],
+      funnel: funnelSteps,
+      roi,
+      utmBreakdown: utmSources.map(item => ({ ...item, share: Number((item.scans / total).toFixed(2)) })),
+    };
+  }, []);
   
   useEffect(() => {
-    document.documentElement.classList.add('dark');
+    document.documentElement.setAttribute('data-theme', theme);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('qr-theme', theme);
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
   const updateConfig = useCallback(<K extends keyof QRCodeConfig>(key: K, value: QRCodeConfig[K]) => {
@@ -45,7 +343,10 @@ const App: React.FC = () => {
   useEffect(() => {
     let newData = '';
     switch (activeContentType) {
-        case 'url': newData = urlData; break;
+        case 'url': {
+            newData = utmPreview;
+            break;
+        }
         case 'text': newData = textData; break;
         case 'wifi':
             const { ssid, password, encryption, isHidden } = wifiData;
@@ -60,8 +361,9 @@ const App: React.FC = () => {
             newData = `BEGIN:VCARD\nVERSION:3.0\nN:${lastName};${firstName}\nFN:${firstName} ${lastName}\nORG:${org}\nTEL:${phone}\nEMAIL:${email}\nEND:VCARD`;
             break;
     }
-    setCurrentConfig(prev => ({ ...prev, data: newData || ' ', contentType: activeContentType }));
-  }, [activeContentType, urlData, textData, wifiData, emailData, vCardData]);
+    const trimmedRawUrl = baseUrl.trim();
+    setCurrentConfig(prev => ({ ...prev, data: newData || ' ', contentType: activeContentType, rawUrl: trimmedRawUrl }));
+  }, [activeContentType, baseUrl, textData, wifiData, emailData, vCardData, utmPreview]);
 
   useEffect(() => {
     if (autoErrorCorrection) {
@@ -79,7 +381,7 @@ const App: React.FC = () => {
             default: name = `${currentConfig.contentType.charAt(0).toUpperCase() + currentConfig.contentType.slice(1)} Code`;
         }
     }
-    const codeToSave = { ...currentConfig, name };
+    const codeToSave = { ...currentConfig, name, rawUrl: baseUrl.trim() };
     if (existingIndex !== -1) {
       const updatedCodes = [...savedQRCodes];
       updatedCodes[existingIndex] = codeToSave;
@@ -123,6 +425,30 @@ const App: React.FC = () => {
     if (codeToLoad) {
         setCurrentConfig(codeToLoad);
         setIsLibraryOpen(false);
+        if (codeToLoad.contentType === 'url') {
+            const storedRaw = codeToLoad.rawUrl?.trim();
+            try {
+                const url = new URL(codeToLoad.data);
+                const nextParams: UtmParams = {
+                    source: url.searchParams.get('utm_source') || utmParams.source,
+                    medium: url.searchParams.get('utm_medium') || utmParams.medium,
+                    campaign: url.searchParams.get('utm_campaign') || utmParams.campaign,
+                    term: url.searchParams.get('utm_term') || utmParams.term,
+                    content: url.searchParams.get('utm_content') || utmParams.content,
+                };
+                setUtmParams(nextParams);
+                const containsUtm = Array.from(url.searchParams.keys()).some(key => key.startsWith('utm_'));
+                setAutoUtmEnabled(prev => containsUtm || prev);
+            } catch {
+                // If the stored data cannot be parsed we fall back to previous params.
+            }
+
+            if (storedRaw) {
+                setBaseUrl(storedRaw);
+            } else {
+                setBaseUrl(stripUtmParams(codeToLoad.data));
+            }
+        }
     }
   };
 
@@ -131,10 +457,12 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row h-screen font-sans text-gray-200 bg-gradient-to-br from-gray-900 to-slate-900">
-        <div className="w-full lg:w-3/5 p-6 lg:p-8 overflow-y-auto space-y-6 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-800/50">
+    <div className={`theme-container ${theme === 'light' ? 'theme-light' : 'theme-dark'} flex flex-col lg:flex-row font-sans min-h-screen`}>
+        <div className="w-full lg:w-3/5 p-6 lg:p-8 overflow-y-auto space-y-6 scrollbar-thin">
             <Header
                 onHistoryClick={() => setIsLibraryOpen(true)}
+                onToggleTheme={toggleTheme}
+                theme={theme}
             />
             <ContentTypeTabs activeType={activeContentType} onTypeChange={setActiveContentType} />
             <GlassCard title="Content" isOpen={openSections.content} setIsOpen={() => toggleSection('content')} isCollapsible>
@@ -142,7 +470,26 @@ const App: React.FC = () => {
                 <div className="mt-4">
                     <AnimatePresence mode="wait">
                         <motion.div key={activeContentType} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="space-y-4">
-                            {activeContentType === 'url' && <FormInput label="Website URL" id="website-url" value={urlData} onChange={e => setUrlData(e.target.value)} placeholder="https://example.com" />}
+                            {activeContentType === 'url' && (
+                                <div className="space-y-3">
+                                    <FormInput label="Website URL" id="website-url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://example.com" />
+                                    {urlValidation.error && (
+                                        <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-400/20 rounded-lg px-3 py-2">
+                                            {urlValidation.error}
+                                        </div>
+                                    )}
+                                    <UtmBuilder
+                                        enabled={autoUtmEnabled}
+                                        onToggle={setAutoUtmEnabled}
+                                        params={utmParams}
+                                        onChange={setUtmParams}
+                                        latestUrl={utmPreview}
+                                        urlError={urlValidation.error}
+                                        isUrlValid={Boolean(urlValidation.normalized)}
+                                        theme={theme}
+                                    />
+                                </div>
+                            )}
                             {activeContentType === 'text' && <FormTextarea label="Text" id="text" value={textData} onChange={e => setTextData(e.target.value)} placeholder="Enter your text" />}
                             {activeContentType === 'wifi' && <div className="space-y-4"> <FormInput label="Network SSID" id="wifi-ssid" value={wifiData.ssid} onChange={e => setWifiData(d => ({...d, ssid: e.target.value}))} /> <FormInput label="Password" id="wifi-password" type="password" value={wifiData.password} onChange={e => setWifiData(d => ({...d, password: e.target.value}))} /> <FormInput label="Encryption" id="wifi-encryption" value={wifiData.encryption} onChange={e => setWifiData(d => ({...d, encryption: e.target.value}))} /> <FormCheckbox label="Hidden Network" id="wifi-hidden" checked={wifiData.isHidden} onChange={e => setWifiData(d => ({...d, isHidden: e.target.checked}))} /> </div>}
                             {activeContentType === 'email' && <div className="space-y-4"> <FormInput label="Email Address" id="email-address" type="email" value={emailData.address} onChange={e => setEmailData(d => ({...d, address: e.target.value}))} placeholder="recipient@example.com" /> <FormInput label="Subject" id="email-subject" value={emailData.subject} onChange={e => setEmailData(d => ({...d, subject: e.target.value}))} /> <FormTextarea label="Body" id="email-body" value={emailData.body} onChange={e => setEmailData(d => ({...d, body: e.target.value}))} rows={4} /> </div>}
@@ -165,7 +512,13 @@ const App: React.FC = () => {
             </div>
             
             <GlassCard title="Colors" isOpen={openSections.colors} setIsOpen={() => toggleSection('colors')} isCollapsible>
-                <ColorControls fgColor={currentConfig.fgColor} bgColor={currentConfig.bgColor} onFgColorChange={(c) => updateConfig('fgColor', c)} onBgColorChange={(c) => updateConfig('bgColor', c)} />
+                <ColorControls
+                    fgColor={currentConfig.fgColor}
+                    bgColor={currentConfig.bgColor}
+                    onFgColorChange={(c) => updateConfig('fgColor', c)}
+                    onBgColorChange={(c) => updateConfig('bgColor', c)}
+                    theme={theme}
+                />
             </GlassCard>
 
             <GlassCard title="Error Correction" isOpen={openSections.errorCorrection} setIsOpen={() => toggleSection('errorCorrection')} isCollapsible>
@@ -193,47 +546,121 @@ const App: React.FC = () => {
             </GlassCard>
 
             <GlassCard title="Shape & Style" isOpen={openSections.shape} setIsOpen={() => toggleSection('shape')} isCollapsible>
-                <VisualSegmentedControl label="Dot Style" options={DOT_STYLES} value={currentConfig.dotType} onChange={(v) => updateConfig('dotType', v as DotType)} gridCols="grid-cols-3 sm:grid-cols-6" />
+                <VisualSegmentedControl
+                    label="Dot Style"
+                    options={DOT_STYLES}
+                    value={currentConfig.dotType}
+                    onChange={(v) => updateConfig('dotType', v as DotType)}
+                    gridCols="grid-cols-1 sm:grid-cols-2"
+                    renderPreview={(option) => (
+                        <DotStylePreview type={option.value as DotType} color={currentConfig.fgColor} theme={theme} />
+                    )}
+                />
             </GlassCard>
             
             <GlassCard title="Finder Pattern Style" isOpen={openSections.finders} setIsOpen={() => toggleSection('finders')} isCollapsible>
                 <FinderPatternExplanation />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <VisualSegmentedControl label="Outer Square" options={CORNER_SQUARE_STYLES} value={currentConfig.cornerSquareType} onChange={(v) => updateConfig('cornerSquareType', v as CornerSquareType)} gridCols="grid-cols-3" />
-                    <VisualSegmentedControl label="Inner Dot" options={CORNER_DOT_STYLES} value={currentConfig.cornerDotType} onChange={(v) => updateConfig('cornerDotType', v as CornerDotType)} gridCols="grid-cols-3" />
+                <FinderPatternPreview
+                    outer={currentConfig.cornerSquareType}
+                    inner={currentConfig.cornerDotType}
+                    fgColor={currentConfig.fgColor}
+                    bgColor={currentConfig.bgColor}
+                    theme={theme}
+                />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <VisualSegmentedControl
+                        label="Outer Eye"
+                        options={CORNER_SQUARE_STYLES}
+                        value={currentConfig.cornerSquareType}
+                        onChange={(v) => updateConfig('cornerSquareType', v as CornerSquareType)}
+                        gridCols="grid-cols-1 sm:grid-cols-2"
+                        renderPreview={(option) => (
+                            <CornerStylePreview
+                                variant="outer"
+                                type={option.value as CornerSquareType}
+                                color={currentConfig.fgColor}
+                                theme={theme}
+                            />
+                        )}
+                    />
+                    <VisualSegmentedControl
+                        label="Inner Eye"
+                        options={CORNER_DOT_STYLES}
+                        value={currentConfig.cornerDotType}
+                        onChange={(v) => updateConfig('cornerDotType', v as CornerDotType)}
+                        gridCols="grid-cols-1 sm:grid-cols-2"
+                        renderPreview={(option) => (
+                            <CornerStylePreview
+                                variant="inner"
+                                type={option.value as CornerDotType}
+                                color={currentConfig.fgColor}
+                                theme={theme}
+                            />
+                        )}
+                    />
                 </div>
             </GlassCard>
 
             <GlassCard title="Logo" isOpen={openSections.logo} setIsOpen={() => toggleSection('logo')} isCollapsible>
                 <LogoUpload image={currentConfig.image} onUpload={handleLogoUpload} onRemove={() => updateConfig('image', undefined)} />
             </GlassCard>
+            <GlassCard title="Settings" isOpen={openSections.settings} setIsOpen={() => toggleSection('settings')} isCollapsible>
+                <div className="space-y-3 text-sm text-gray-300">
+                    <p className="text-gray-400">Access analytics and advanced tracking utilities.</p>
+                    <button
+                        type="button"
+                        onClick={() => setIsAnalyticsOpen(true)}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-indigo-400/30 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20 transition-colors"
+                    >
+                        <MaterialIcon name="dashboard" className="!text-base" />
+                        Open Analytics Dashboard
+                    </button>
+                </div>
+            </GlassCard>
         </div>
-        <div className="w-full lg:w-2/5 p-6 lg:p-8 flex flex-col justify-center items-center bg-black/20">
+        <div className="w-full lg:w-2/5 p-6 lg:p-8 flex flex-col items-center justify-start">
             <div className="w-full max-w-sm">
                 <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-white">Live Preview</h2>
+                    <h2 className="text-lg font-semibold">Live Preview</h2>
                     <p className="text-xs text-gray-400">Updates automatically</p>
                 </div>
-                <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 flex justify-center items-center mb-6 shadow-lg">
+                <div className="glass-card border rounded-2xl backdrop-blur-xl flex justify-center items-center mb-6 shadow-lg p-6 aspect-square">
                     <motion.div key={currentConfig.id + JSON.stringify(currentConfig)} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }} className="rounded-lg">
-                        <QRCodePreview config={currentConfig} qrRef={qrRef} />
+                        <QRCodePreview config={currentConfig} qrRef={qrRef} theme={theme} />
                     </motion.div>
                 </div>
-                <div className="p-4 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 mb-6 text-sm">
-                    <h3 className="font-semibold text-white mb-3">QR Code Details</h3>
+                <div className="glass-card border rounded-2xl backdrop-blur-xl mb-6 text-sm p-4">
+                    <h3 className="font-semibold mb-3">QR Code Details</h3>
                     <div className="space-y-2">
-                        <div className="flex justify-between"><span className="text-gray-400">Type:</span> <span className="font-medium text-white capitalize">{currentConfig.contentType}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-400">Size:</span> <span className="font-medium text-white">256x256px</span></div>
-                        <ScanabilityIndicator fgColor={currentConfig.fgColor} bgColor={currentConfig.bgColor} />
+                        <div className="flex justify-between"><span className="text-gray-400">Type:</span> <span className="font-medium capitalize">{currentConfig.contentType}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-400">Size:</span> <span className="font-medium">256x256px</span></div>
+                        <ScanabilityIndicator fgColor={currentConfig.fgColor} bgColor={currentConfig.bgColor} theme={theme} />
                     </div>
                 </div>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="mb-6">
+                    <GlassCard
+                        title="Scan Readiness"
+                        isCollapsible
+                        isOpen={openSections.readiness}
+                        setIsOpen={() => toggleSection('readiness')}
+                    >
+                        <ScanReadinessCard
+                            readiness={readiness}
+                            scanDistanceFt={scanDistanceFt}
+                            onScanDistanceChange={setScanDistanceFt}
+                            printSizeIn={printSizeIn}
+                            onPrintSizeChange={setPrintSizeIn}
+                            onOpenScanner={() => setIsScanModalOpen(true)}
+                        />
+                    </GlassCard>
+                </div>
+                <div className="grid grid-cols-4 gap-3 mt-2">
                     <ActionButton onClick={() => handleDownload('png')} icon={<DownloadIcon />} text="PNG" isPrimary />
                     <ActionButton onClick={() => handleDownload('jpeg')} text="JPEG" />
                     <ActionButton onClick={() => handleDownload('svg')} text="SVG" />
                     <ActionButton onClick={() => setIsScanModalOpen(true)} icon={<CameraIcon />} text="Test" />
                 </div>
-                <button onClick={handleSave} className="mt-4 w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium rounded-xl text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors">
+                <button onClick={handleSave} className="theme-button theme-button-primary mt-4 w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium rounded-xl transition-colors">
                     <SaveIcon /> <span>Save QR Code</span>
                 </button>
             </div>
@@ -251,6 +678,11 @@ const App: React.FC = () => {
             onClose={() => setIsScanModalOpen(false)}
             expectedData={currentConfig.data}
         />
+        <AnalyticsModal
+            isOpen={isAnalyticsOpen}
+            onClose={() => setIsAnalyticsOpen(false)}
+            data={analyticsInsights}
+        />
     </div>
   );
 };
@@ -259,33 +691,38 @@ const App: React.FC = () => {
 
 const Header: React.FC<{
     onHistoryClick: () => void;
-}> = ({ onHistoryClick }) => (
+    onToggleTheme: () => void;
+    theme: Theme;
+}> = ({ onHistoryClick, onToggleTheme, theme }) => (
     <header className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
             <LogoIcon />
             <div>
-                <h1 className="text-xl font-bold text-white">QR Code Studio</h1>
+                <h1 className="text-xl font-bold">QR Code Studio</h1>
                 <p className="text-sm text-gray-400">Create beautiful, custom QR codes</p>
             </div>
         </div>
         <div className="flex items-center space-x-2">
-            <GlassButton onClick={onHistoryClick}><HistoryIcon /></GlassButton>
-            <GlassButton><AccountIcon /></GlassButton>
+            <GlassButton onClick={onToggleTheme} aria-label="Toggle theme">
+                <MaterialIcon name={theme === 'light' ? 'dark_mode' : 'light_mode'} />
+            </GlassButton>
+            <GlassButton onClick={onHistoryClick} aria-label="Open history"><HistoryIcon /></GlassButton>
+            <GlassButton aria-label="Account"><AccountIcon /></GlassButton>
         </div>
     </header>
 );
 
-const GlassButton: React.FC<{ children: React.ReactNode; onClick?: () => void;}> = ({ children, onClick }) => (
-    <button onClick={onClick} className="p-2 rounded-xl text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors">
+const GlassButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ children, className = '', ...props }) => (
+    <button {...props} className={`theme-button p-2 rounded-xl flex items-center justify-center transition-colors ${className}`}>
         {children}
     </button>
 );
 
 const GlassCard: React.FC<{ title?: string; children: React.ReactNode; isCollapsible?: boolean; isOpen?: boolean; setIsOpen?: () => void; }> = ({ title, children, isCollapsible, isOpen, setIsOpen }) => (
-    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl">
+    <div className="glass-card backdrop-blur-xl border rounded-2xl">
         {title && (
             <button onClick={() => isCollapsible && setIsOpen && setIsOpen()} className={`flex items-center justify-between w-full p-4 ${isCollapsible && isOpen ? 'border-b border-white/10' : ''} ${isCollapsible ? '' : 'cursor-default'}`}>
-                <h3 className="font-semibold text-white">{title}</h3>
+                <h3 className="font-semibold">{title}</h3>
                 {isCollapsible && (
                     <div className="p-1 text-gray-400">
                         <motion.div animate={{ rotate: isOpen ? 0 : -180 }} transition={{ duration: 0.3 }}>
@@ -353,6 +790,7 @@ const ScanPreviewModal: React.FC<{
 }> = ({ isOpen, onClose, expectedData }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
     const animationFrameId = useRef<number>();
     const [status, setStatus] = useState<'idle' | 'scanning' | 'success' | 'error' | 'no_permission'>('idle');
     const [scannedData, setScannedData] = useState<string>('');
@@ -374,14 +812,52 @@ const ScanPreviewModal: React.FC<{
                     inversionAttempts: 'dontInvert',
                 });
 
+                const overlayCanvas = overlayCanvasRef.current;
+                const overlayCtx = overlayCanvas ? overlayCanvas.getContext('2d') : null;
+                if (overlayCanvas && overlayCtx) {
+                    overlayCanvas.width = video.videoWidth;
+                    overlayCanvas.height = video.videoHeight;
+                    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                }
+
                 if (code) {
+                    const isMatch = code.data === expectedData.trim();
+                    if (overlayCanvas && overlayCtx) {
+                        overlayCtx.strokeStyle = isMatch ? '#34d399' : '#facc15';
+                        overlayCtx.lineWidth = 4;
+                        overlayCtx.beginPath();
+                        overlayCtx.moveTo(code.location.topLeftCorner.x, code.location.topLeftCorner.y);
+                        overlayCtx.lineTo(code.location.topRightCorner.x, code.location.topRightCorner.y);
+                        overlayCtx.lineTo(code.location.bottomRightCorner.x, code.location.bottomRightCorner.y);
+                        overlayCtx.lineTo(code.location.bottomLeftCorner.x, code.location.bottomLeftCorner.y);
+                        overlayCtx.closePath();
+                        overlayCtx.stroke();
+                        overlayCtx.fillStyle = isMatch ? 'rgba(52, 211, 153, 0.12)' : 'rgba(250, 204, 21, 0.12)';
+                        overlayCtx.fill();
+                        const centerX = (code.location.topLeftCorner.x + code.location.topRightCorner.x + code.location.bottomLeftCorner.x + code.location.bottomRightCorner.x) / 4;
+                        const centerY = (code.location.topLeftCorner.y + code.location.topRightCorner.y + code.location.bottomLeftCorner.y + code.location.bottomRightCorner.y) / 4;
+                        overlayCtx.beginPath();
+                        overlayCtx.arc(centerX, centerY, 6, 0, Math.PI * 2);
+                        overlayCtx.fillStyle = isMatch ? '#34d399' : '#facc15';
+                        overlayCtx.fill();
+                    }
+
                     setScannedData(code.data);
-                    if (code.data === expectedData.trim()) {
+                    if (isMatch) {
                         setStatus('success');
                     } else {
                         setStatus('error');
                     }
                 } else {
+                    if (overlayCanvas && overlayCtx) {
+                        overlayCtx.strokeStyle = 'rgba(148, 163, 184, 0.6)';
+                        overlayCtx.lineWidth = 2;
+                        overlayCtx.setLineDash([8, 12]);
+                        const insetX = overlayCanvas.width * 0.15;
+                        const insetY = overlayCanvas.height * 0.15;
+                        overlayCtx.strokeRect(insetX, insetY, overlayCanvas.width - insetX * 2, overlayCanvas.height - insetY * 2);
+                        overlayCtx.setLineDash([]);
+                    }
                     if (status !== 'scanning') setStatus('scanning');
                 }
             }
@@ -415,6 +891,10 @@ const ScanPreviewModal: React.FC<{
             if (animationFrameId.current) {
                 cancelAnimationFrame(animationFrameId.current);
             }
+            if (overlayCanvasRef.current) {
+                const ctx = overlayCanvasRef.current.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
+            }
         }
 
         return () => {
@@ -424,6 +904,10 @@ const ScanPreviewModal: React.FC<{
             }
             if (animationFrameId.current) {
                 cancelAnimationFrame(animationFrameId.current);
+            }
+            if (overlayCanvasRef.current) {
+                const ctx = overlayCanvasRef.current.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
             }
         };
     }, [isOpen, tick]);
@@ -487,6 +971,7 @@ const ScanPreviewModal: React.FC<{
                     >
                          <video ref={videoRef} className="absolute top-0 left-0 w-full h-full object-cover" muted playsInline />
                          <canvas ref={canvasRef} className="hidden" />
+                         <canvas ref={overlayCanvasRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" />
                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <div className="w-2/3 h-2/3 max-w-[300px] max-h-[300px] border-4 border-white/50 rounded-2xl" style={{boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)'}} />
                          </div>
@@ -501,13 +986,48 @@ const ScanPreviewModal: React.FC<{
     );
 };
 
+const AnalyticsModal: React.FC<{ isOpen: boolean; onClose: () => void; data: AnalyticsData; }> = ({ isOpen, onClose, data }) => (
+    <AnimatePresence>
+        {isOpen && (
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+                onClick={onClose}
+            >
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-white/10 bg-[#0b1324]/95 backdrop-blur-xl shadow-2xl"
+                    onClick={e => e.stopPropagation()}
+                >
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 text-sm text-gray-300">
+                        <div>
+                            <p className="text-base font-semibold text-white">Analytics Dashboard</p>
+                            <p className="text-xs text-gray-400">Track scans, conversions, and ROI. Connect GA4 or a marketing platform when ready.</p>
+                        </div>
+                        <button onClick={onClose} className="p-2 rounded-full text-gray-300 hover:bg-white/10 transition-colors">
+                            <MaterialIcon name="close" />
+                        </button>
+                    </div>
+                    <div className="p-6 overflow-y-auto max-h-[calc(90vh-4.5rem)]">
+                        <AnalyticsPanel data={data} />
+                    </div>
+                </motion.div>
+            </motion.div>
+        )}
+    </AnimatePresence>
+);
+
 
 const contentTypes: { id: ContentType, label: string, icon: React.ReactNode }[] = [ { id: 'url', label: 'URL', icon: <LinkIcon /> }, { id: 'text', label: 'Text', icon: <TextIcon /> }, { id: 'wifi', label: 'WiFi', icon: <WifiIcon /> }, { id: 'vcard', label: 'vCard', icon: <VCardIcon /> }, { id: 'email', label: 'Email', icon: <EmailIcon /> },]
 const ContentTypeTabs: React.FC<{activeType: ContentType; onTypeChange: (type: ContentType) => void;}> = ({ activeType, onTypeChange }) => (
     <div className="flex space-x-1 p-1 rounded-xl bg-white/5 backdrop-blur-xl border border-white/10">
         {contentTypes.map(({ id, label, icon }) => (
-            <button key={id} onClick={() => onTypeChange(id)} className={`relative flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${ activeType !== id ? 'text-gray-300 hover:bg-white/10' : 'text-white'}`}>
-                {activeType === id && <motion.div layoutId="active-content-type" className="absolute inset-0 bg-white/10 rounded-lg shadow-sm" />}
+            <button key={id} onClick={() => onTypeChange(id)} className={`relative flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${ activeType !== id ? 'text-gray-300 hover:bg-white/10' : 'text-black'}`}>
+                {activeType === id && <motion.div layoutId="active-content-type" className="absolute inset-0 bg-[#F3F3F3] rounded-lg shadow-sm" />}
                 <span className="relative z-10">{icon}</span>
                 <span className="relative z-10">{label}</span>
             </button>
@@ -556,15 +1076,15 @@ const FormCheckbox: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { lab
     </div>
 );
 
-const ColorControls: React.FC<{ fgColor: string; bgColor: string; onFgColorChange: (c: string) => void; onBgColorChange: (c: string) => void; }> = ({ fgColor, bgColor, onFgColorChange, onBgColorChange }) => (
+const ColorControls: React.FC<{ fgColor: string; bgColor: string; onFgColorChange: (c: string) => void; onBgColorChange: (c: string) => void; theme: Theme; }> = ({ fgColor, bgColor, onFgColorChange, onBgColorChange, theme }) => (
     <div className="flex space-x-4">
-        <ColorInput label="Foreground" color={fgColor} onChange={onFgColorChange} />
-        <ColorInput label="Background" color={bgColor} onChange={onBgColorChange} />
+        <ColorInput label="Foreground" color={fgColor} onChange={onFgColorChange} theme={theme} />
+        <ColorInput label="Background" color={bgColor} onChange={onBgColorChange} theme={theme} />
     </div>
 );
 
-const ColorInput: React.FC<{ label: string; color: string; onChange: (c: string) => void; }> = ({ label, color, onChange }) => {
-    const transparentBg = '#1a233b';
+const ColorInput: React.FC<{ label: string; color: string; onChange: (c: string) => void; theme: Theme; }> = ({ label, color, onChange, theme }) => {
+    const transparentBg = theme === 'light' ? LIGHT_SURFACE_ACCENT : '#1a233b';
     const inputValue = color === 'transparent' ? transparentBg : color;
     return (
         <div className="flex-1">
@@ -592,6 +1112,529 @@ const ColorInput: React.FC<{ label: string; color: string; onChange: (c: string)
         </div>
     );
 };
+
+const UtmBuilder: React.FC<{
+    enabled: boolean;
+    onToggle: (value: boolean) => void;
+    params: UtmParams;
+    onChange: React.Dispatch<React.SetStateAction<UtmParams>>;
+    latestUrl: string;
+    urlError: string | null;
+    isUrlValid: boolean;
+    theme: Theme;
+}> = ({ enabled, onToggle, params, onChange, latestUrl, urlError, isUrlValid, theme }) => {
+    const utmFields: { key: keyof UtmParams; label: string; placeholder: string; helper?: string }[] = [
+        { key: 'source', label: 'Source', placeholder: 'print-flyer', helper: 'Where the scan originated' },
+        { key: 'medium', label: 'Medium', placeholder: 'qr', helper: 'Channel grouping' },
+        { key: 'campaign', label: 'Campaign', placeholder: 'spring-launch', helper: 'Campaign name' },
+        { key: 'content', label: 'Content', placeholder: 'cta-variant-a' },
+        { key: 'term', label: 'Term', placeholder: 'promo-code' },
+    ];
+
+    const handleParamChange = (key: keyof UtmParams, value: string) => {
+        onChange(prev => ({ ...prev, [key]: value }));
+    };
+
+    const canShowFields = enabled && isUrlValid;
+    const previewUrl = canShowFields ? latestUrl : '';
+
+    return (
+        <div className="p-3 rounded-xl bg-black/20 border border-white/10 text-xs text-gray-300 space-y-3">
+            <div className="flex items-center justify-between">
+                <div>
+                    <p className="text-sm font-medium text-white flex items-center gap-1">
+                        <MaterialIcon name="tag" className="!text-base text-indigo-300" />
+                        UTM Automation
+                    </p>
+                    <p className="text-xs text-gray-400">Append tracking parameters so scans tie back to marketing analytics.</p>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => onToggle(!enabled)}
+                    className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${enabled ? 'bg-indigo-500' : 'bg-white/10'}`}
+                    aria-pressed={enabled}
+                >
+                    <motion.span layout className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform m-1 ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+            </div>
+            {enabled && !isUrlValid && !urlError && (
+                <div className="text-[0.65rem] text-yellow-200 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
+                    Add a valid destination above to append UTM parameters.
+                </div>
+            )}
+            <AnimatePresence initial={false}>
+                {canShowFields && (
+                    <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-2"
+                    >
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {utmFields.map(field => (
+                                <label key={field.key} className="flex flex-col gap-1">
+                                    <span className="text-[0.65rem] uppercase tracking-wide text-gray-400">{field.label}</span>
+                                    <input
+                                        type="text"
+                                        value={params[field.key]}
+                                        onChange={e => handleParamChange(field.key, e.target.value)}
+                                        placeholder={field.placeholder}
+                                        className={`${theme === 'light' ? 'bg-[#F3F3F3]' : 'bg-[#F3F3F3]/[0.06]'} border border-white/10 rounded-lg px-3 py-2 text-sm ${theme === 'light' ? 'text-black' : 'text-white'} focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none ${theme === 'light' ? 'placeholder:text-gray-700' : 'placeholder:text-gray-300'}`}
+                                    />
+                                    {field.helper && <span className="text-[0.65rem] text-gray-500">{field.helper}</span>}
+                                </label>
+                            ))}
+                        </div>
+                        {previewUrl && (
+                            <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[0.7rem] text-indigo-100 break-all">
+                                <span className="text-gray-400">Preview:</span>
+                                <span className="ml-2 text-white">{previewUrl}</span>
+                            </div>
+                        )}
+                        <p className="text-[0.65rem] text-gray-500">We keep the original field above clean—UTMs only touch the generated QR destination.</p>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
+const radiusMapDot: Record<DotType, string> = {
+    square: '4px',
+    rounded: '8px',
+    dots: '999px',
+    classy: '4px',
+    'classy-rounded': '10px',
+    'extra-rounded': '12px',
+};
+
+const DotStylePreview: React.FC<{ type: DotType; color: string; theme: Theme }> = ({ type, color, theme }) => {
+    const cells = Array.from({ length: 9 });
+    const transformMap: Partial<Record<DotType, string>> = {
+        dots: 'scale(0.85)',
+        classy: 'scale(0.9)',
+        'classy-rounded': 'scale(0.9)',
+        'extra-rounded': 'scale(0.92)',
+    };
+    const shadowMap: Partial<Record<DotType, string>> = {
+        classy: 'inset 0 0 0 1px rgba(255,255,255,0.35)',
+        'classy-rounded': 'inset 0 0 0 1px rgba(255,255,255,0.35)',
+    };
+    const containerBg = theme === 'light' ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.7)';
+    const borderColor = theme === 'light' ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.25)';
+
+    return (
+        <div className="w-full flex justify-center">
+            <div className="grid grid-cols-3 gap-1 rounded-lg p-2" style={{ backgroundColor: containerBg, border: `1px solid ${borderColor}` }}>
+                {cells.map((_, idx) => (
+                    <span
+                        key={idx}
+                        className="block"
+                        style={{
+                            width: '0.9rem',
+                            height: '0.9rem',
+                            backgroundColor: color,
+                            borderRadius: radiusMapDot[type],
+                            transform: transformMap[type] || 'none',
+                            boxShadow: shadowMap[type],
+                        }}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const cornerOuterRadius: Record<CornerSquareType, string> = {
+    square: '8px',
+    dot: '999px',
+    'extra-rounded': '14px',
+};
+
+const cornerInnerRadius: Record<CornerDotType, string> = {
+    square: '6px',
+    dot: '999px',
+};
+
+const CornerStylePreview: React.FC<{
+    variant: 'outer' | 'inner';
+    type: CornerSquareType | CornerDotType;
+    color: string;
+    theme: Theme;
+}> = ({ variant, type, color, theme }) => {
+    if (variant === 'outer') {
+        const outerType = type as CornerSquareType;
+        const holeRadius = outerType === 'dot' ? '999px' : outerType === 'extra-rounded' ? '14px' : '6px';
+        const innerBg = theme === 'light' ? 'rgba(248, 250, 252, 0.98)' : 'rgba(15, 23, 42, 0.95)';
+        return (
+            <div className="flex items-center justify-center w-full">
+                <div className="relative w-16 h-16">
+                    <div
+                        className="absolute inset-0"
+                        style={{
+                            borderRadius: cornerOuterRadius[outerType],
+                            backgroundColor: color,
+                            boxShadow: theme === 'light' ? '0 6px 18px rgba(148, 163, 184, 0.35)' : '0 4px 12px rgba(15, 23, 42, 0.6)',
+                        }}
+                    />
+                    <div
+                        className="absolute inset-[20%]"
+                        style={{
+                            borderRadius: holeRadius,
+                            backgroundColor: innerBg,
+                            boxShadow: theme === 'light' ? 'inset 0 0 0 1px rgba(148, 163, 184, 0.35)' : 'none',
+                        }}
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    const innerType = type as CornerDotType;
+    const surfaceBg = theme === 'light' ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.65)';
+    const borderColor = theme === 'light' ? 'rgba(148, 163, 184, 0.55)' : 'rgba(148, 163, 184, 0.25)';
+    return (
+        <div className="flex items-center justify-center w-full">
+            <div className="w-16 h-16 rounded-xl flex items-center justify-center" style={{ backgroundColor: surfaceBg, border: `1px solid ${borderColor}` }}>
+                <div
+                    style={{
+                        width: '46%',
+                        height: '46%',
+                        backgroundColor: color,
+                        borderRadius: cornerInnerRadius[innerType],
+                    }}
+                />
+            </div>
+        </div>
+    );
+};
+
+const FinderPatternPreview: React.FC<{
+    outer: CornerSquareType;
+    inner: CornerDotType;
+    fgColor: string;
+    bgColor: string;
+    theme: Theme;
+}> = ({ outer, inner, fgColor, bgColor, theme }) => {
+    const fallbackBg = theme === 'light' ? LIGHT_TRANSPARENT_BG : DEFAULT_TRANSPARENT_BG;
+    const resolvedBg = bgColor === 'transparent' ? fallbackBg : bgColor;
+    const cells = [0, 1, 2];
+    const cardBg = theme === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(15,23,42,0.85)';
+    const borderColor = theme === 'light' ? 'rgba(148, 163, 184, 0.45)' : 'rgba(148, 163, 184, 0.25)';
+
+    return (
+        <div className="flex flex-col gap-3 mb-4">
+            <p className="text-xs text-gray-400">Preview how the finder eyes render with your current color palette.</p>
+            <div className="flex items-center justify-between gap-4">
+                {cells.map((cell) => (
+                    <div
+                        key={cell}
+                        className="relative w-20 h-20 rounded-2xl flex items-center justify-center"
+                        style={{ backgroundColor: cardBg, border: `1px solid ${borderColor}` }}
+                    >
+                        <div
+                            className="flex items-center justify-center"
+                            style={{
+                                width: '78%',
+                                height: '78%',
+                                backgroundColor: fgColor,
+                                borderRadius: cornerOuterRadius[outer],
+                            }}
+                        >
+                            <div
+                                className="flex items-center justify-center"
+                                style={{
+                                    width: '48%',
+                                    height: '48%',
+                                    backgroundColor: resolvedBg,
+                                    borderRadius: outer === 'dot' ? '999px' : outer === 'extra-rounded' ? '14px' : '6px',
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        width: '60%',
+                                        height: '60%',
+                                        backgroundColor: fgColor,
+                                        borderRadius: cornerInnerRadius[inner],
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const ScanReadinessCard: React.FC<{
+    readiness: ReadinessResult;
+    scanDistanceFt: number;
+    onScanDistanceChange: (value: number) => void;
+    printSizeIn: number;
+    onPrintSizeChange: (value: number) => void;
+    onOpenScanner: () => void;
+}> = ({ readiness, scanDistanceFt, onScanDistanceChange, printSizeIn, onPrintSizeChange, onOpenScanner }) => {
+    const { warnings, metrics } = readiness;
+    const isReady = warnings.length === 0;
+
+    const handleDistanceChange = (value: string) => {
+        const next = Number(value);
+        if (!Number.isFinite(next)) return;
+        onScanDistanceChange(Math.max(0, parseFloat(next.toFixed(2))));
+    };
+
+    const handlePrintSizeChange = (value: string) => {
+        const next = Number(value);
+        if (!Number.isFinite(next)) return;
+        onPrintSizeChange(Math.max(0, parseFloat(next.toFixed(2))));
+    };
+
+    return (
+        <div className="p-4 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 mb-6 text-sm">
+            <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-white">Scan Readiness</h3>
+                <span className={`px-3 py-1 text-xs rounded-full border ${isReady ? 'text-green-300 border-green-400/30 bg-green-500/10' : 'text-yellow-200 border-yellow-400/30 bg-yellow-500/10'}`}>
+                    {isReady ? 'Ready' : 'Needs attention'}
+                </span>
+            </div>
+            <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wide">Contrast</p>
+                        <p className="text-sm text-white font-medium">{metrics.contrastPercent}% diff · {metrics.contrastRatio}:1</p>
+                    </div>
+                    <MaterialIcon name={metrics.meetsContrast ? 'check_circle' : 'warning'} className={`!text-xl ${metrics.meetsContrast ? 'text-green-400' : 'text-yellow-300'}`} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs text-gray-400">
+                        Scan distance (ft)
+                        <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            value={Number.isFinite(scanDistanceFt) ? scanDistanceFt : ''}
+                            onChange={e => handleDistanceChange(e.target.value)}
+                            className="mt-1 w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none"
+                        />
+                    </label>
+                    <label className="text-xs text-gray-400">
+                        Print width (in)
+                        <input
+                            type="number"
+                            min={0}
+                            step={0.25}
+                            value={Number.isFinite(printSizeIn) ? printSizeIn : ''}
+                            onChange={e => handlePrintSizeChange(e.target.value)}
+                            className="mt-1 w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none"
+                        />
+                    </label>
+                </div>
+                <div className="p-3 rounded-lg bg-black/20 border border-white/5 text-xs text-gray-300 space-y-1">
+                    <div className="flex items-center justify-between">
+                        <span>Max distance for current size</span>
+                        <span className="font-medium text-white">{metrics.maxDistanceFt}ft</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span>Min width for {scanDistanceFt}ft</span>
+                        <span className="font-medium text-white">{metrics.recommendedPrintWidthIn}"</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span>Recommended export size</span>
+                        <span className="font-medium text-white">{metrics.recommendedPixelSize}px</span>
+                    </div>
+                </div>
+            </div>
+            <div className="mt-3 space-y-2">
+                {warnings.map(warning => (
+                    <div key={warning.id} className="flex items-start gap-2 text-xs text-yellow-200 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
+                        <MaterialIcon name="priority_high" className="!text-base mt-0.5" />
+                        <span>{warning.message}</span>
+                    </div>
+                ))}
+                {isReady && (
+                    <div className="flex items-center gap-2 text-xs text-green-200 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
+                        <MaterialIcon name="done_all" className="!text-base" />
+                        <span>Looks good. Run the live scan preview to double-check lighting and focus.</span>
+                    </div>
+                )}
+            </div>
+            <button
+                onClick={onOpenScanner}
+                className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-indigo-200 bg-indigo-500/20 border border-indigo-500/40 hover:bg-indigo-500/30 transition-colors"
+            >
+                <MaterialIcon name="qr_code_scanner" />
+                Live scan preview
+            </button>
+        </div>
+    );
+};
+
+const AnalyticsPanel: React.FC<{ data: AnalyticsData; }> = ({ data }) => {
+    const stats = [
+        { label: 'Total scans', value: data.totalScans.toLocaleString() },
+        { label: 'Unique visitors', value: data.uniqueVisitors.toLocaleString() },
+        { label: 'Retention', value: `${Math.round(data.retentionRate * 100)}%` },
+        { label: 'ROAS', value: `${data.roi.roas.toFixed(2)}x` },
+    ];
+
+    return (
+        <div className="p-4 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 mb-6 text-sm space-y-4">
+            <div className="flex items-start justify-between gap-3">
+                <div>
+                    <h3 className="font-semibold text-white">Analytics Dashboard</h3>
+                    <p className="text-xs text-gray-400">{data.period} · Track scans through to revenue with built-in ROI math.</p>
+                </div>
+                <button
+                    type="button"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg text-indigo-200 bg-indigo-500/20 border border-indigo-400/40 hover:bg-indigo-500/30 transition-colors"
+                >
+                    <MaterialIcon name="analytics" className="!text-base" />
+                    Connect GA4
+                </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs text-gray-300">
+                {stats.map(stat => (
+                    <div key={stat.label} className="p-3 rounded-lg bg-black/20 border border-white/5">
+                        <p className="uppercase tracking-wide text-[0.65rem] text-gray-500">{stat.label}</p>
+                        <p className="text-lg font-semibold text-white">{stat.value}</p>
+                    </div>
+                ))}
+            </div>
+            <div className="space-y-3">
+                <div>
+                    <h4 className="text-xs uppercase tracking-wide text-gray-400 mb-2">Scan hotspots</h4>
+                    <HeatMap points={data.topLocations} />
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                        <h4 className="text-xs uppercase tracking-wide text-gray-400 mb-2">Conversion funnel</h4>
+                        <ConversionFunnel steps={data.funnel} />
+                    </div>
+                    <div className="p-3 rounded-lg bg-black/20 border border-white/5 space-y-2">
+                        <h4 className="text-xs uppercase tracking-wide text-gray-400">ROI snapshot</h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-300">
+                            <StatPair label="Revenue" value={`$${data.roi.revenue.toLocaleString()}`} tone="positive" />
+                            <StatPair label="Spend" value={`$${data.roi.spend.toLocaleString()}`} />
+                            <StatPair label="Cost / acquisition" value={`$${data.roi.costPerAcquisition.toFixed(2)}`} />
+                            <StatPair label="Cost / scan" value={`$${data.roi.costPerScan.toFixed(2)}`} />
+                        </div>
+                        <p className="text-[0.65rem] text-gray-500">Feed conversions via webhook or Google Analytics Measurement Protocol to replace these mock metrics with live numbers.</p>
+                    </div>
+                </div>
+                <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                    <h4 className="text-xs uppercase tracking-wide text-gray-400 mb-2">Top UTM performers</h4>
+                    <UtmBreakdownList items={data.utmBreakdown} />
+                </div>
+                <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-400/20 text-xs text-indigo-100 space-y-1">
+                    <p className="font-medium text-indigo-100">Next integrations</p>
+                    <p>• Send scan payloads to Google Analytics 4 using Measurement Protocol (include `client_id`, `utm_*`, and order values).</p>
+                    <p>• Sync lead captures with HubSpot or Salesforce via webhook to complete the offline-to-online funnel.</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const StatPair: React.FC<{ label: string; value: string; tone?: 'positive' | 'neutral' }> = ({ label, value, tone = 'neutral' }) => (
+    <div className={`p-2 rounded-md ${tone === 'positive' ? 'bg-green-500/10 border border-green-400/20' : 'bg-white/5 border border-white/10'}`}>
+        <p className="text-[0.65rem] uppercase tracking-wide text-gray-500">{label}</p>
+        <p className={`text-sm font-semibold ${tone === 'positive' ? 'text-green-200' : 'text-white'}`}>{value}</p>
+    </div>
+);
+
+const HeatMap: React.FC<{ points: HeatPoint[] }> = ({ points }) => {
+    const latLngToPosition = (lat: number, lng: number) => ({
+        left: `${((lng + 180) / 360) * 100}%`,
+        top: `${((90 - lat) / 180) * 100}%`,
+    });
+
+    return (
+        <div
+            className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0b1324] aspect-[4/3]"
+            style={{
+                backgroundImage:
+                    'radial-gradient(circle at 20% 20%, rgba(99,102,241,0.18), transparent 55%), radial-gradient(circle at 80% 30%, rgba(16,185,129,0.15), transparent 55%), radial-gradient(circle at 40% 80%, rgba(59,130,246,0.12), transparent 60%)',
+            }}
+        >
+            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:24px_24px]" />
+            {points.map(point => {
+                const position = latLngToPosition(point.lat, point.lng);
+                const size = 16 + point.intensity * 26;
+                return (
+                    <div
+                        key={point.id}
+                        className="absolute pointer-events-none"
+                        style={{ left: position.left, top: position.top, transform: 'translate(-50%, -50%)' }}
+                    >
+                        <div
+                            className="rounded-full"
+                            style={{
+                                width: size,
+                                height: size,
+                                background: 'rgba(99,102,241,0.6)',
+                                boxShadow: `0 0 ${size * 2}px ${size}px rgba(99,102,241,0.35)`
+                            }}
+                        />
+                        <div className="mt-1 px-2 py-1 rounded-full bg-black/60 text-[0.65rem] text-indigo-100 border border-white/10 text-center whitespace-nowrap">
+                            {point.label} · {point.scans.toLocaleString()} scans
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+const ConversionFunnel: React.FC<{ steps: FunnelStep[] }> = ({ steps }) => {
+    const max = steps[0]?.value || 1;
+    return (
+        <div className="space-y-3">
+            {steps.map((step, index) => {
+                const percentOfStart = Math.round((step.value / max) * 100);
+                const previous = index === 0 ? null : steps[index - 1];
+                const stepConversion = previous ? Math.round((step.value / (previous.value || 1)) * 100) : 100;
+                return (
+                    <div key={step.id} className="space-y-1">
+                        <div className="flex items-center justify-between text-[0.7rem] text-gray-300">
+                            <span className="font-medium text-white/90">{step.label}</span>
+                            <span>{step.value.toLocaleString()} · {percentOfStart}% of scans</span>
+                        </div>
+                        <div className="h-2 rounded-lg bg-white/5">
+                            <div
+                                className="h-full rounded-lg bg-gradient-to-r from-indigo-500 via-sky-500 to-cyan-400"
+                                style={{ width: `${Math.max(4, (step.value / max) * 100)}%` }}
+                            />
+                        </div>
+                        {previous && (
+                            <p className="text-[0.65rem] text-gray-500">{stepConversion}% from {previous.label.toLowerCase()} · {step.description}</p>
+                        )}
+                        {!previous && <p className="text-[0.65rem] text-gray-500">{step.description}</p>}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+const UtmBreakdownList: React.FC<{ items: AnalyticsData['utmBreakdown'] }> = ({ items }) => (
+    <div className="space-y-2 text-xs text-gray-300">
+        {items.map(item => (
+            <div key={item.id}>
+                <div className="flex items-center justify-between">
+                    <span>{item.label}</span>
+                    <span>{(item.share * 100).toFixed(0)}%</span>
+                </div>
+                <div className="h-2 rounded-lg bg-white/5 overflow-hidden">
+                    <div
+                        className="h-full bg-gradient-to-r from-indigo-400 via-fuchsia-400 to-amber-300"
+                        style={{ width: `${Math.min(100, Math.max(4, item.share * 100))}%` }}
+                    />
+                </div>
+            </div>
+        ))}
+    </div>
+);
 
 const ErrorCorrectionExplanation: React.FC = () => (
     <div className="text-sm text-gray-400">
@@ -638,16 +1681,48 @@ const StylePreviewIcon: React.FC<{ type: string }> = ({ type }) => {
     return <div className="flex items-center justify-center w-8 h-8 rounded-md bg-white/5">{iconStyles[type] || iconStyles['square']}</div>;
 };
 
-const VisualSegmentedControl = <T extends string>({ label, options, value, onChange, gridCols }: { label:string; options: {value: T, label: string}[]; value: T; onChange: (value: T) => void; gridCols?: string; }) => (
+const VisualSegmentedControl = <T extends string>({
+    label,
+    options,
+    value,
+    onChange,
+    gridCols,
+    renderPreview,
+}: {
+    label: string;
+    options: { value: T; label: string; description?: string }[];
+    value: T;
+    onChange: (value: T) => void;
+    gridCols?: string;
+    renderPreview?: (option: { value: T; label: string; description?: string }) => React.ReactNode;
+}) => (
     <div>
-        <label className="block text-sm font-medium text-gray-400 mb-2">{label}</label>
-        <div className={`grid ${gridCols || 'grid-cols-3'} gap-2`}>
-            {options.map(option => (
-                <button key={option.value} onClick={() => onChange(option.value)} className={`p-2 text-sm rounded-lg transition-colors flex flex-col items-center justify-center gap-2 aspect-square ${value === option.value ? 'bg-indigo-500/50 text-white border border-indigo-500/70' : 'text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10'}`}>
-                    <StylePreviewIcon type={option.value} />
-                    <span className="text-xs">{option.label}</span>
-                </button>
-            ))}
+        <label className="block text-sm font-medium text-gray-300 mb-2">{label}</label>
+        <div className={`grid ${gridCols || 'grid-cols-3'} gap-3`}>
+            {options.map(option => {
+                const preview = renderPreview ? renderPreview(option) : <StylePreviewIcon type={option.value} />;
+                const isActive = value === option.value;
+                return (
+                    <button
+                        key={option.value}
+                        onClick={() => onChange(option.value)}
+                        className={`relative flex flex-col items-start gap-3 rounded-xl border px-4 py-3 text-left transition-all hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${
+                            isActive
+                                ? 'border-indigo-400/70 bg-indigo-500/20 text-white shadow-lg shadow-indigo-500/20'
+                                : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'
+                        }`}
+                    >
+                        <div className="flex items-center justify-center w-full">{preview}</div>
+                        <div className="space-y-1">
+                            <p className="text-sm font-semibold text-white/90">{option.label}</p>
+                            {option.description && (
+                                <p className="text-xs text-gray-400 leading-snug">{option.description}</p>
+                            )}
+                        </div>
+                        {isActive && <span className="absolute top-3 right-3 text-indigo-300"><MaterialIcon name="check_circle" className="!text-base" /></span>}
+                    </button>
+                );
+            })}
         </div>
     </div>
 );
@@ -665,7 +1740,7 @@ const FinderPatternExplanation = () => (
             <rect x="0.5" y="18.5" width="6" height="6" stroke="rgb(129 140 248)" rx="1"/>
         </svg>
         <span>
-            Customize the "eyes" of the QR code. The <strong>outer square</strong> and <strong>inner dot</strong> can have different styles.
+            Customize the QR finder “eyes.” Mix and match the <strong>outer eye</strong> and <strong>inner pupil</strong>, then preview the trio of corners in real time above the controls.
         </span>
     </div>
 );
@@ -701,10 +1776,10 @@ const LogoUpload: React.FC<{image?: string; onUpload: (e: React.ChangeEvent<HTML
     </div>
 );
 
-const ScanabilityIndicator: React.FC<{ fgColor: string; bgColor: string; }> = ({ fgColor, bgColor }) => {
+const ScanabilityIndicator: React.FC<{ fgColor: string; bgColor: string; theme: Theme; }> = ({ fgColor, bgColor, theme }) => {
     // This is a simplified contrast check. A real-world scenario would use a more robust library.
     const getLuminance = (hex: string) => {
-        if (hex === 'transparent') hex = '#1a233b';
+        if (hex === 'transparent') hex = theme === 'light' ? LIGHT_TRANSPARENT_BG : '#1a233b';
         hex = hex.replace('#', '');
         const rgb = parseInt(hex, 16);
         const r = (rgb >> 16) & 0xff;
@@ -744,11 +1819,7 @@ const ScanabilityIndicator: React.FC<{ fgColor: string; bgColor: string; }> = ({
 };
 
 const ActionButton: React.FC<{ onClick: () => void; text: string; icon?: React.ReactNode; isPrimary?: boolean }> = ({ onClick, text, icon, isPrimary }) => (
-    <button onClick={onClick} className={`w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
-        isPrimary
-            ? 'text-white bg-indigo-600 hover:bg-indigo-700'
-            : 'text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10'
-    }`}>
+    <button onClick={onClick} className={`theme-button w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-colors ${isPrimary ? 'theme-button-primary' : ''}`}>
         {icon && <span>{icon}</span>}
         <span>{text}</span>
     </button>

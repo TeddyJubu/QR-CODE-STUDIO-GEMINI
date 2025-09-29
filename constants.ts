@@ -2,6 +2,7 @@ import { QRCodeConfig, DotType, CornerSquareType, CornerDotType, ErrorCorrection
 
 export const DEFAULT_QR_CODE_CONFIG: Omit<QRCodeConfig, 'id' | 'name'> = {
   data: 'https://example.com',
+  rawUrl: 'https://example.com',
   isDynamic: false,
   contentType: 'url',
   fgColor: '#FFFFFF',
@@ -12,24 +13,24 @@ export const DEFAULT_QR_CODE_CONFIG: Omit<QRCodeConfig, 'id' | 'name'> = {
   errorCorrectionLevel: 'M',
 };
 
-export const DOT_STYLES: { value: DotType; label: string }[] = [
-  { value: 'square', label: 'Square' },
-  { value: 'rounded', label: 'Rounded' },
-  { value: 'dots', label: 'Dots' },
-  { value: 'classy', label: 'Classy' },
-  { value: 'classy-rounded', label: 'Classy R.' },
-  { value: 'extra-rounded', label: 'Extra R.' },
+export const DOT_STYLES: { value: DotType; label: string; description: string }[] = [
+  { value: 'square', label: 'Classic Square', description: 'Crisp modules with sharp corners for maximum contrast.' },
+  { value: 'rounded', label: 'Soft Rounded', description: 'Gentle edges that still scan well on print and screens.' },
+  { value: 'dots', label: 'Micro Dots', description: 'Playful dot grid—great for modern, light-hearted designs.' },
+  { value: 'classy', label: 'Classy', description: 'Geometric squares with a subtle inset for premium layouts.' },
+  { value: 'classy-rounded', label: 'Classy Rounded', description: 'Rounded inset squares that balance elegance and readability.' },
+  { value: 'extra-rounded', label: 'Bubble', description: 'Highly rounded modules for bold, organic brand systems.' },
 ];
 
-export const CORNER_SQUARE_STYLES: { value: CornerSquareType; label: string }[] = [
-  { value: 'square', label: 'Square' },
-  { value: 'dot', label: 'Dot' },
-  { value: 'extra-rounded', label: 'Rounded' },
+export const CORNER_SQUARE_STYLES: { value: CornerSquareType; label: string; description: string }[] = [
+  { value: 'square', label: 'Angular Eye', description: 'Traditional finder eye with crisp edges.' },
+  { value: 'dot', label: 'Circular Eye', description: 'Fully rounded outer eye for a softer vibe.' },
+  { value: 'extra-rounded', label: 'Pill Eye', description: 'Rounded corners without losing the square footprint.' },
 ];
 
-export const CORNER_DOT_STYLES: { value: CornerDotType; label: string }[] = [
-  { value: 'square', label: 'Square' },
-  { value: 'dot', label: 'Dot' },
+export const CORNER_DOT_STYLES: { value: CornerDotType; label: string; description: string }[] = [
+  { value: 'square', label: 'Solid Center', description: 'Square center for high-contrast targeting.' },
+  { value: 'dot', label: 'Round Center', description: 'Circular center that complements rounded themes.' },
 ];
 
 export const ERROR_CORRECTION_LEVELS: { value: ErrorCorrectionLevel; label: string; description: string }[] = [

@@ -31,6 +31,93 @@
         :root {
           --grid-color: rgba(255, 255, 255, 0.1);
         }
+        :root[data-theme='dark'] {
+          --grid-color: rgba(255, 255, 255, 0.1);
+          --app-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #312e81 100%);
+          --text-primary: #e2e8f0;
+          --text-secondary: #94a3b8;
+          --text-muted: #94a3b8;
+          --panel-bg: rgba(15, 23, 42, 0.65);
+          --panel-border: rgba(148, 163, 184, 0.18);
+          --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.55);
+          --button-primary-bg: rgba(99, 102, 241, 0.22);
+          --button-primary-border: rgba(129, 140, 248, 0.45);
+          --button-primary-text: #dbe4ff;
+          --button-surface-bg: rgba(148, 163, 184, 0.12);
+          --button-surface-text: #e2e8f0;
+          --divider-color: rgba(148, 163, 184, 0.25);
+        }
+        :root[data-theme='light'] {
+          --grid-color: rgba(148, 163, 184, 0.18);
+          --app-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 45%, #c7d2fe 100%);
+          --text-primary: #0f172a;
+          --text-secondary: #475569;
+          --text-muted: #64748b;
+          --panel-bg: rgba(255, 255, 255, 0.94);
+          --panel-border: rgba(148, 163, 184, 0.28);
+          --panel-shadow: 0 24px 55px rgba(148, 163, 184, 0.22);
+          --button-primary-bg: rgba(99, 102, 241, 0.82);
+          --button-primary-border: rgba(79, 70, 229, 0.6);
+          --button-primary-text: #f8fafc;
+          --button-surface-bg: rgba(255, 255, 255, 0.92);
+          --button-surface-text: #1f2937;
+          --divider-color: rgba(148, 163, 184, 0.35);
+        }
+        .theme-container {
+            min-height: 100vh;
+            background: var(--app-gradient);
+            color: var(--text-primary);
+            transition: background 0.4s ease, color 0.4s ease;
+        }
+        .glass-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            box-shadow: var(--panel-shadow);
+            transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .theme-button {
+            background: var(--button-surface-bg);
+            color: var(--button-surface-text);
+            border: 1px solid var(--panel-border);
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, filter 0.3s ease;
+        }
+        .theme-button:hover {
+            filter: brightness(1.05);
+        }
+        .theme-button-primary {
+            background: var(--button-primary-bg);
+            color: var(--button-primary-text);
+            border-color: var(--button-primary-border);
+        }
+        .theme-divider {
+            border-color: var(--divider-color);
+        }
+        :root[data-theme='light'] .text-white,
+        :root[data-theme='light'] .text-gray-200,
+        :root[data-theme='light'] .text-gray-300,
+        :root[data-theme='light'] .text-indigo-100,
+        :root[data-theme='light'] .text-indigo-200,
+        :root[data-theme='light'] .text-indigo-300 {
+            color: var(--text-primary) !important;
+        }
+        :root[data-theme='light'] .text-gray-400,
+        :root[data-theme='light'] .text-gray-500,
+        :root[data-theme='light'] .text-gray-600 {
+            color: var(--text-secondary) !important;
+        }
+        :root[data-theme='light'] .bg-white\/5,
+        :root[data-theme='light'] .bg-white\/10,
+        :root[data-theme='light'] .bg-black\/20 {
+            background-color: var(--panel-bg) !important;
+        }
+        :root[data-theme='light'] .bg-indigo-500\/20,
+        :root[data-theme='light'] .bg-indigo-500\/30 {
+            background-color: rgba(99, 102, 241, 0.2) !important;
+        }
+        :root[data-theme='light'] .border-white\/10,
+        :root[data-theme='light'] .border-white\/5 {
+            border-color: var(--panel-border) !important;
+        }
         .bg-transparent-grid {
             background-image:
                 linear-gradient(45deg, var(--grid-color) 25%, transparent 25%),
