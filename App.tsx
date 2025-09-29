@@ -193,7 +193,7 @@ const App: React.FC = () => {
   });
   const [savedQRCodes, setSavedQRCodes] = useLocalStorage<QRCodeConfig[]>('qr-codes-library', []);
   const qrRef = useRef<any | null>(null);
-  const [openSections, setOpenSections] = useState({ content: true, templates: true, colors: true, errorCorrection: true, shape: true, finders: false, logo: false, settings: false, readiness: true });
+  const [openSections, setOpenSections] = useState({ content: true, templates: true, colors: true, errorCorrection: true, shape: true, finders: false, logo: false, settings: false, readiness: false });
   const [activeContentType, setActiveContentType] = useState<ContentType>('url');
   const [autoErrorCorrection, setAutoErrorCorrection] = useState(true);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
@@ -486,6 +486,7 @@ const App: React.FC = () => {
                                         latestUrl={utmPreview}
                                         urlError={urlValidation.error}
                                         isUrlValid={Boolean(urlValidation.normalized)}
+                                        theme={theme}
                                     />
                                 </div>
                             )}
@@ -1120,7 +1121,8 @@ const UtmBuilder: React.FC<{
     latestUrl: string;
     urlError: string | null;
     isUrlValid: boolean;
-}> = ({ enabled, onToggle, params, onChange, latestUrl, urlError, isUrlValid }) => {
+    theme: Theme;
+}> = ({ enabled, onToggle, params, onChange, latestUrl, urlError, isUrlValid, theme }) => {
     const utmFields: { key: keyof UtmParams; label: string; placeholder: string; helper?: string }[] = [
         { key: 'source', label: 'Source', placeholder: 'print-flyer', helper: 'Where the scan originated' },
         { key: 'medium', label: 'Medium', placeholder: 'qr', helper: 'Channel grouping' },
@@ -1177,7 +1179,7 @@ const UtmBuilder: React.FC<{
                                         value={params[field.key]}
                                         onChange={e => handleParamChange(field.key, e.target.value)}
                                         placeholder={field.placeholder}
-                                        className="bg-[#F3F3F3] border border-white/10 rounded-lg px-3 py-2 text-sm text-black focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none placeholder:text-gray-700"
+                                        className={`${theme === 'light' ? 'bg-[#F3F3F3]' : 'bg-[#F3F3F3]/[0.06]'} border border-white/10 rounded-lg px-3 py-2 text-sm ${theme === 'light' ? 'text-black' : 'text-white'} focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none ${theme === 'light' ? 'placeholder:text-gray-700' : 'placeholder:text-gray-300'}`}
                                     />
                                     {field.helper && <span className="text-[0.65rem] text-gray-500">{field.helper}</span>}
                                 </label>
