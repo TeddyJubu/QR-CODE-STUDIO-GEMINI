@@ -25,3 +25,4 @@ dist-ssr
 
 # Moat task system
 .moat/
+.vercel
