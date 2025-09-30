@@ -618,7 +618,7 @@ const App: React.FC = () => {
                 </div>
             </GlassCard>
         </div>
-        <div className="w-full lg:w-2/5 p-6 lg:p-8 flex flex-col items-center justify-start">
+        <div className="w-full lg:w-2/5 p-6 lg:p-8 flex flex-col items-center justify-start lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto">
             <div className="w-full max-w-sm">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold">Live Preview</h2>
